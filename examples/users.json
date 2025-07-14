@@ -1,0 +1,16 @@
+{
+  "bucket_root": "https://fomomon.s3.amazonaws.com/t4gc/",
+  "users": [
+    {
+      "user_id": "prashanthb",
+      "name": "Prashanth B",
+      "email": "prashanth@tech4goodcommunity.com"
+    },
+    {
+      "user_id": "lakshmi_n",
+      "name": "Lakshmi Narayan",
+      "email": "lakshmi@ngo.org"
+    }
+  ]
+}
+

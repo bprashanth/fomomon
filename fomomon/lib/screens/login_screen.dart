@@ -9,10 +9,11 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _appName = 'FOMOMON';
 
   // Login screen fields
   final TextEditingController _orgController = TextEditingController(
-    text: 'ncf',
+    text: "t4gc",
   );
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -52,60 +53,66 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Center(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Fomomon',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 32),
-                TextFormField(
-                  controller: _orgController,
-                  decoration: const InputDecoration(labelText: 'Org Code'),
-                  validator:
-                      (value) => value!.isEmpty ? 'Enter org code' : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                  validator:
-                      (value) => value!.isEmpty ? 'Enter your name' : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  validator:
-                      (value) => value!.isEmpty ? 'Enter your email' : null,
-                ),
-                const SizedBox(height: 24),
-                if (_isLoading)
-                  const CircularProgressIndicator()
-                else
-                  ElevatedButton(
-                    onPressed: _handleSubmit,
-                    child: const Text('Continue'),
-                  ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16.0),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(color: Colors.red),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/login_background.png',
+            fit: BoxFit.cover,
+            color: Colors.black.withOpacity(0.6),
+            colorBlendMode: BlendMode.darken,
+          ),
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: IntrinsicHeight(
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 100), // pushes it down
+                        const Text(
+                          'Fomomon',
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        _buildTextInput('Org Code', _orgController),
+                        const SizedBox(height: 16),
+                        _buildTextInput('Name', _nameController),
+                        const SizedBox(height: 16),
+                        _buildTextInput('Email', _emailController),
+                        const SizedBox(height: 24),
+                        ElevatedButton(
+                          onPressed: _handleSubmit,
+                          child: const Text('Continue'),
+                        ),
+                        const SizedBox(height: 100), // pushes bottom space
+                      ],
                     ),
                   ),
-              ],
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildTextInput(String label, TextEditingController controller) {
+    return TextFormField(
+      controller: controller,
+      decoration: InputDecoration(labelText: label),
+      style: const TextStyle(color: Colors.white),
+      validator: (value) => value!.isEmpty ? 'Enter $label' : null,
     );
   }
 }
