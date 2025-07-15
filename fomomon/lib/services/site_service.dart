@@ -7,15 +7,34 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/site.dart';
+import '../config/app_config.dart';
+import 'dart:io';
 
 class SiteService {
-  static Future<List<Site>> fetchSites(String bucketRoot) async {
-    final url = '${bucketRoot}sites.json';
-    final res = await http.get(Uri.parse(url));
+  static Future<List<Site>> fetchSites() async {
+    final root = AppConfig.getResolvedBucketRoot();
+    final path = "$root/sites.json";
 
-    if (res.statusCode != 200) throw Exception('Failed to load sites');
-    final data = jsonDecode(res.body);
-    print('data: $data');
-    return (data['sites'] as List).map((e) => Site.fromJson(e)).toList();
+    try {
+      String jsonStr;
+
+      if (path.startsWith("http")) {
+        final response = await http.get(Uri.parse(path));
+        if (response.statusCode != 200) throw Exception("HTTP error");
+        jsonStr = response.body;
+      } else if (path.startsWith("file://")) {
+        final file = File(Uri.parse(path).toFilePath());
+        jsonStr = await file.readAsString();
+      } else {
+        throw Exception("Unsupported bucketRoot scheme");
+      }
+
+      final json = jsonDecode(jsonStr);
+      final List<dynamic> siteList = json['sites'];
+      return siteList.map((s) => Site.fromJson(s)).toList();
+    } catch (e) {
+      print("Failed to fetch sites: $e");
+      return [];
+    }
   }
 }

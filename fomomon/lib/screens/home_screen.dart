@@ -16,17 +16,13 @@ class HomeScreen extends StatefulWidget {
   final String name;
   final String email;
   final String org;
-  final String bucketName;
 
   const HomeScreen({
     required this.name,
     required this.email,
     required this.org,
-    required this.bucketName,
     super.key,
   });
-
-  String getBucketRoot() => "https://$bucketName.s3.amazonaws.com/$org/";
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -43,12 +39,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // - Typically, it's 3-5 meters with LocationAccuracy.high
   // - Indoor due to GPS signal attenuation, it's more like 5-10m
   final double triggerRadius = 10.0;
-  String? bucketRoot;
 
   @override
   void initState() {
     super.initState();
-    bucketRoot = widget.getBucketRoot();
     _init();
   }
 
@@ -56,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final ok = await GpsService.ensurePermission();
     if (!ok) return;
 
-    final sites = await SiteService.fetchSites(bucketRoot!);
+    final sites = await SiteService.fetchSites();
     setState(() => _sites = sites);
 
     // Listen to the position stream and update the state with the latest

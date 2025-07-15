@@ -6,6 +6,7 @@
 /// - Calculating distances between coordinates
 
 import 'package:geolocator/geolocator.dart';
+import '../config/app_config.dart';
 
 class GpsService {
   static Future<bool> ensurePermission() async {
@@ -20,7 +21,29 @@ class GpsService {
         permission == LocationPermission.whileInUse;
   }
 
+  // TODO(prashanth@): getCurrentPosition() should be used to get the current
+  // position, this could be more economical than the stream.
   static Stream<Position> getPositionStream() {
+    if (AppConfig.isTestMode &&
+        AppConfig.mockLat != null &&
+        AppConfig.mockLng != null) {
+      // Mock a position stream that returns a fixed position every 2 seconds
+      return Stream.periodic(
+        const Duration(seconds: 2),
+        (_) => Position(
+          latitude: AppConfig.mockLat!,
+          longitude: AppConfig.mockLng!,
+          accuracy: 10.0,
+          altitude: 0.0,
+          altitudeAccuracy: 10.0,
+          heading: 0.0,
+          headingAccuracy: 10.0,
+          speed: 0.0,
+          speedAccuracy: 10.0,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
     return Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
