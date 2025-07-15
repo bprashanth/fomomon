@@ -38,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // A note on trigger radius:
   // - Typically, it's 3-5 meters with LocationAccuracy.high
   // - Indoor due to GPS signal attenuation, it's more like 5-10m
-  final double triggerRadius = 10.0;
+  final double triggerRadius = 500.0;
 
   @override
   void initState() {
@@ -50,7 +50,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final ok = await GpsService.ensurePermission();
     if (!ok) return;
 
-    final sites = await SiteService.fetchSites();
+    // Fetch the sites and prefetch the images every home screen load.
+    // Typically, all images should have been prefetched at the
+    // site_prefetch_screen, on login. So this fetch operation should be
+    // incremental, i.e only new reference images, new sites etc.
+    final sites = await SiteService.fetchSitesAndPrefetchImages();
     setState(() => _sites = sites);
 
     // Listen to the position stream and update the state with the latest
@@ -58,6 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // geolocation based processing.
     GpsService.getPositionStream().listen((userPos) {
       final nearby = _getClosestSite(userPos, _sites);
+      print("home_screen: userPos: $userPos, nearby: $nearby");
       setState(() {
         _userPos = userPos;
         _nearestSite = nearby;
