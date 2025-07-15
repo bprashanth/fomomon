@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../screens/home_screen.dart';
+import '../config/app_config.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -34,15 +35,11 @@ class _LoginScreenState extends State<LoginScreen> {
     final org = _orgController.text.trim();
 
     if (name.isNotEmpty || email.isNotEmpty && org.isNotEmpty) {
+      AppConfig.configure(bucketName: _appName.toLowerCase(), org: org);
+
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder:
-              (_) => HomeScreen(
-                name: name,
-                email: email,
-                org: org,
-                bucketName: _appName.toLowerCase(),
-              ),
+          builder: (_) => HomeScreen(name: name, email: email, org: org),
         ),
       );
     }
