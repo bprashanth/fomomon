@@ -22,6 +22,7 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/site.dart';
+import 'pulsing_dot.dart';
 
 class GpsFeedbackPanel extends StatelessWidget {
   final Position? user;
@@ -31,25 +32,38 @@ class GpsFeedbackPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: SizedBox(
+    return Align(
+      alignment: Alignment.center,
+      child: Container(
         width: 200,
         height: 200,
+        decoration: BoxDecoration(
+          color: const Color.fromARGB(255, 30, 58, 118),
+          border: Border.all(
+            color: const Color.fromARGB(255, 4, 252, 70),
+            width: 1,
+          ),
+          borderRadius: BorderRadius.circular(100),
+        ),
         child: Stack(children: [_buildUserDot(), ..._buildSiteDots()]),
       ),
     );
   }
 
-  Widget _buildUserDot() => const Positioned(
-    left: 90,
-    top: 90,
-    child: Icon(Icons.person_pin_circle, size: 20, color: Colors.yellow),
-  );
+  Widget _buildUserDot() {
+    if (user == null) return const SizedBox();
+    return Positioned(
+      left: 85,
+      top: 85,
+      child: PulsingDot(color: const Color.fromARGB(255, 7, 255, 61), size: 6),
+    );
+  }
 
   List<Widget> _buildSiteDots() {
     if (user == null) return [];
 
     return sites.map((site) {
+      print("gps_panel: building dot for site: ${site.id}");
       final dx = Geolocator.distanceBetween(
         user!.latitude,
         user!.longitude,
@@ -72,8 +86,31 @@ class GpsFeedbackPanel extends StatelessWidget {
       return Positioned(
         left: left.clamp(0, 180),
         top: top.clamp(0, 180),
-        child: const Icon(Icons.location_on, size: 20, color: Colors.red),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              site.id,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 6,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace',
+                backgroundColor: Colors.transparent,
+              ),
+            ),
+            _buildDot(color: const Color.fromARGB(255, 7, 255, 61)),
+          ],
+        ),
       );
     }).toList();
+  }
+
+  Widget _buildDot({required Color color, double size = 14}) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
   }
 }
