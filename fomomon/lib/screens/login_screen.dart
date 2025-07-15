@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../screens/home_screen.dart';
 import '../config/app_config.dart';
+import '../screens/site_prefetch_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -39,7 +39,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => HomeScreen(name: name, email: email, org: org),
+          builder:
+              (_) => SitePrefetchScreen(name: name, email: email, org: org),
         ),
       );
     }
@@ -52,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
         fit: StackFit.expand,
         children: [
           Image.asset(
-            'assets/images/login_background.png',
+            'assets/images/login.png',
             fit: BoxFit.cover,
             color: Colors.black.withOpacity(0.6),
             colorBlendMode: BlendMode.darken,
@@ -71,7 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         const SizedBox(height: 100), // pushes it down
                         const Text(
-                          'Fomomon',
+                          'Fomo',
                           style: TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.bold,

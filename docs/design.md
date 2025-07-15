@@ -30,13 +30,15 @@
 
 ## UI components 
 
-1. HomeScreen
-2. CaptureScreen
-3. ConfirmScreen
-4. SurveyScreen
-5. ReviewScreen
-6. GalleryScreen
-7. UploadScreen
+1. LoginScreen
+2. SitePrefetchScreen
+3. HomeScreen
+4. CaptureScreen
+5. ConfirmScreen
+6. SurveyScreen
+7. ReviewScreen
+8. GalleryScreen
+9. UploadScreen
 
 
 ## Data Structures and storages 
@@ -108,12 +110,12 @@ your-bucket/
 ├── sites.json
 ├── users.json
 ├── db/
-│   ├── 2025-07-14_1005.json  
-│   ├── 2025-07-14_1130.json
+│   ├── {username}_{timestamp}.json  
 │   └── ...
 ├── site_001/
 │   ├── 2025-07-14_1005_portrait.jpg
 │   ├── 2025-07-14_1006_landscape.jpg
+│   ├── {username}_{timestamp}.jpg
 ```
 * There is only one sites file per all users in an org, and it captures all sites info. 
 * Each db fil
@@ -164,7 +166,7 @@ class SurveyResponse {
 ### App local storage management 
 
 We use a singleton SessionManager for the local storage.
-Local storage is in `hive`. 
+
 
 ### S3 storage management 
 

@@ -1,19 +1,34 @@
+## Outline
+```
+Step 1: Create CapturedSession model
+Store all capture info + responses
+Make Hive-compatible
 
-## Completed 
+Step 2: Build CaptureScreen for portrait
+Ghost overlay + opacity slider
+Save image to local path
+Navigate to ConfirmScreen
 
-* Login screen with org, name, email
-* Configurable bucketRoot templated via org and app name
-* Sites and users fetched via `site_service` 
-* GPS permission and streaming via `gps_service`
-* Visual feedback on HomeScreen with site/user dots`*`
-* Mocking infrastructure for offline testing
-* Modular structure for services and screens
+Step 3: Add ConfirmScreen
+Show image
+“Retake”: go back
+“Next”: continue
 
-## In Progress / Pending Fixes
+Step 4–6:
+Repeat for landscape
+Show SurveyScreen
+Save session to Hive
 
-* Fix GpsFeedbackPanel
-	- Make user dot dynamic (based on GPS)
-	- Style site/user dots as circles
+Step 7:
+Build GalleryScreen to list local sessions
+Add "Upload All" button
+
+Step 8:
+Build UploadService:
+Upload image files to S3
+Upload metadata JSON
+Delete session on success
+```
 
 ## Site Entry (0.5 days)
 
@@ -44,3 +59,7 @@ Via hive
 
 * Poll sites.json and suers.json daily
 
+
+## Issues 
+
+1. We don't re-fetch reference images, but we should if the timestamp is different. Alternatively, we can always modify the reference images to point at images that have a different file name (i.e a different timestamp in the filename itself) so it will _always_ differ.
