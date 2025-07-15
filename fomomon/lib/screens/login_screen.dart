@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../screens/home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,39 +16,36 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _orgController = TextEditingController(
     text: "t4gc",
   );
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-
-  bool _isLoading = false;
-  String? _error;
+  final TextEditingController _nameController = TextEditingController(
+    text: "Prashanth",
+  );
+  final TextEditingController _emailController = TextEditingController(
+    text: "prashanth@fomomon.com",
+  );
 
   void _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
     // Simulate user lookup and login
-    await Future.delayed(const Duration(seconds: 1));
+    // await Future.delayed(const Duration(seconds: 1));
 
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final org = _orgController.text.trim();
 
     if (name.isNotEmpty || email.isNotEmpty && org.isNotEmpty) {
-      Navigator.of(context).pushReplacementNamed('/home');
-    } else {
-      setState(() {
-        _error = 'Please enter a valid name, email, and organization';
-        _isLoading = false;
-      });
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder:
+              (_) => HomeScreen(
+                name: name,
+                email: email,
+                org: org,
+                bucketName: _appName.toLowerCase(),
+              ),
+        ),
+      );
     }
-
-    setState(() {
-      _isLoading = false;
-    });
   }
 
   @override
