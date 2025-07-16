@@ -1,5 +1,24 @@
-## Code layout 
+## Code philosophies 
 
+* Talking to the outside world happens through a service 
+	- These typically involve "outside app" logic, like I/O
+	- Network calls 
+	- local storage 
+	- Device APIs
+* Pure logic helpers are "utils" 
+	- These are typically stateless and synchronous
+	- string formatting
+	- id generation 
+	- json serialization
+	- sanitization
+* Models
+	- Data structures for storage 
+* Widgets 
+	- UI helpers (styling etc) 
+* Lib is the apps root namespace, avoid putting things here
+	- Entrypoints like main.dart and app.dart 
+
+Sample code layout 
 ```console
 lib/
 ├── main.dart

@@ -11,6 +11,8 @@ import '../models/site.dart';
 import '../widgets/gps_feedback_panel.dart';
 import '../widgets/plus_button.dart';
 import 'package:geolocator/geolocator.dart';
+import '../utils/user_utils.dart';
+import '../screens/capture_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -94,7 +96,13 @@ class _HomeScreenState extends State<HomeScreen> {
             child: PlusButton(
               enabled: _nearestSite != null,
               onPressed: () {
-                // navigate to pipeline
+                if (_nearestSite != null) {
+                  _launchPipeline(
+                    context,
+                    getUserId(widget.name, widget.email, widget.org),
+                    _nearestSite!,
+                  );
+                }
               },
             ),
           ),
@@ -102,4 +110,18 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
+
+// Utility function to launch the pipeline screen.
+void _launchPipeline(BuildContext context, String userId, Site site) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder:
+          (_) => CaptureScreen(
+            captureMode: 'portrait',
+            site: site,
+            userId: userId,
+          ),
+    ),
+  );
 }

@@ -1,3 +1,13 @@
+
+## Issues 
+
+1. We don't re-fetch reference images, but we should if the timestamp is different. Alternatively, we can always modify the reference images to point at images that have a different file name (i.e a different timestamp in the filename itself) so it will _always_ differ.
+
+2. Errors in pre-fetch
+
+3. Scaling images (see [docs/aspectratio](./aspectratio.md))
+
+
 ## Outline
 ```
 Step 1: Create CapturedSession model
@@ -60,6 +70,4 @@ Via hive
 * Poll sites.json and suers.json daily
 
 
-## Issues 
 
-1. We don't re-fetch reference images, but we should if the timestamp is different. Alternatively, we can always modify the reference images to point at images that have a different file name (i.e a different timestamp in the filename itself) so it will _always_ differ.
