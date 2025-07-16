@@ -7,6 +7,18 @@
 
 3. Scaling images (see [docs/aspectratio](./aspectratio.md))
 
+4. Refactor routes into named routes, ideally we would have centralized routing and invoke the pipeline like so
+```
+Navigator.of(context).pushReplacementNamed(
+  '/capture_landscape',
+  arguments: ConfirmScreenArgs(...),
+);
+```
+
+### Thought issues 
+
+1. Errors while uploading images. There might be races around uploading an image, replacing the image path in the session data structure and deleting the local image. Not sure if this is a big issue, we can order it as upload, write to session object, delete image. 
+
 
 ## Outline
 ```

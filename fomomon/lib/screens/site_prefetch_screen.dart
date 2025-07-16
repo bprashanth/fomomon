@@ -81,7 +81,7 @@ class _SitePrefetchScreenState extends State<SitePrefetchScreen>
             width: 60,
             height: 60,
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.amber, width: 0),
+              border: Border.all(color: Colors.black, width: 0),
               borderRadius: BorderRadius.circular(100),
             ),
             clipBehavior: Clip.hardEdge,
