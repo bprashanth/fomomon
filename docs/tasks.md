@@ -14,6 +14,10 @@
 
 6. First image is without ghost. The how do users set a ghost? Avoid confusion, just don't set one at first. 
 
+7. Metrics and consolidated logging 
+
+8. URLs and repeatability: if a session or image is uploaded to some url, and there is an app crash before we can mark the session as uploaded, will the next url created for the same session be different or the same? do we need to garbage collect stray images/sessions in s3? 
+
 ### Tech Debt
 
 1. Refactor routes into named routes, ideally we would have centralized routing and invoke the pipeline like so
@@ -42,7 +46,7 @@ class UserSession {
 UserSession.set(name: name, email: email, org: org);
 final org = UserSession.org;
 ```
-
+4. Clean up HomeScreen. It's currently got too many stacks in its build method. 
 
 
 ### Thought issues 

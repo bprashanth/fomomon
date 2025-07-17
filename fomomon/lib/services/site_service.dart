@@ -57,20 +57,33 @@ class SiteService {
           continue;
         }
 
-        final landscapePath =
-            '${site.bucketRoot.endsWith('/') ? site.bucketRoot : '${site.bucketRoot}/'}${site.referenceLandscape}';
+        String getFileName(String path) {
+          final uri = Uri.parse(path);
+          return uri.pathSegments.isNotEmpty ? uri.pathSegments.last : path;
+        }
 
-        final portraitPath =
+        final landscapeUrl =
+            '${site.bucketRoot.endsWith('/') ? site.bucketRoot : '${site.bucketRoot}/'}${site.referenceLandscape}';
+        final portraitUrl =
             '${site.bucketRoot.endsWith('/') ? site.bucketRoot : '${site.bucketRoot}/'}${site.referencePortrait}';
 
+        final landscapeFileName = getFileName(site.referenceLandscape);
+        final portraitFileName = getFileName(site.referencePortrait);
+
         site.localPortraitPath = await _ensureCachedImage(
-          remotePath: portraitPath,
-          filename: '${site.id}_portrait_ref.png',
+          remoteUrl: portraitUrl,
+          remoteFileName: portraitFileName,
+          siteId: site.id,
         );
 
         site.localLandscapePath = await _ensureCachedImage(
-          remotePath: landscapePath,
-          filename: '${site.id}_landscape_ref.png',
+          remoteUrl: landscapeUrl,
+          remoteFileName: landscapeFileName,
+          siteId: site.id,
+        );
+
+        print(
+          "site_service: Cached images for site ${site.id}, portrait: ${site.localPortraitPath}, landscape: ${site.localLandscapePath}",
         );
       }
 
@@ -82,30 +95,38 @@ class SiteService {
   }
 
   static Future<String> _ensureCachedImage({
-    required String remotePath,
-    required String filename,
+    required String remoteUrl,
+    required String remoteFileName,
+    required String siteId,
   }) async {
-    print("Ensuring cached image: $remotePath, $filename");
+    print(
+      "site_service: Ensuring cached image: $remoteUrl, $remoteFileName, $siteId",
+    );
     final dir = await getApplicationDocumentsDirectory();
-    final ghostsDir = Directory('${dir.path}/ghosts');
-    if (!await ghostsDir.exists()) await ghostsDir.create();
+    final ghostsDir = Directory('${dir.path}/ghosts/$siteId');
+    if (!await ghostsDir.exists()) await ghostsDir.create(recursive: true);
 
-    final localPath = '${ghostsDir.path}/$filename';
+    final localPath = '${ghostsDir.path}/$remoteFileName';
     final localFile = File(localPath);
 
     // Only fetch the image if it doesn't exist locally.
     // TODO(prashanth@): check timestamps?
     if (!await localFile.exists()) {
+      print(
+        "site_service: Local file does not exist, fetching image from $remoteUrl",
+      );
       try {
-        final res = await http.get(Uri.parse(remotePath));
+        final res = await http.get(Uri.parse(remoteUrl));
         if (res.statusCode == 200) {
           await localFile.writeAsBytes(res.bodyBytes);
         } else {
-          print('Failed to download ghost image from $remotePath');
+          print('site_service: Failed to download ghost image from $remoteUrl');
         }
       } catch (e) {
-        print('Error downloading ghost image: $e');
+        print('site_service: Error downloading ghost image: $e');
       }
+    } else {
+      print("site_service: Local file exists, skipping fetch");
     }
     return localPath;
   }

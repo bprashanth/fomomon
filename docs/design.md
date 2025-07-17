@@ -34,12 +34,11 @@
 1. LoginScreen
 2. SitePrefetchScreen
 3. HomeScreen
+	3.a. Upload_feedback_panel
+	3.b. GPS_feedback_panel
 4. CaptureScreen
 5. ConfirmScreen
 6. SurveyScreen
-7. ReviewScreen
-8. GalleryScreen
-9. UploadScreen
 
 
 ## Data Structures and storages 
@@ -114,7 +113,9 @@ s3://bucket/org/
 │   ├── {userId}_{timestamp}_portrait.jpg
 │   └── ...
 ├── db/
-│   └── {userId}_{timestamp}.json
+│   └── {timestamp}.json
+├── sessions/
+│   ├── {userId}_{timestamp}.json
 ```
 * There is only one sites file per all users in an org, and it captures all sites info. 
 * Each db file is a batch of session data (though it could be the output of a single pipeline as well) captured on one phone, covering one or more sites, and one single upload action. 
@@ -127,6 +128,10 @@ documents/
 │   │   └── {userId}_{timestamp}_landscape.jpg
 ├── sessions/
 │   ├── {userId}_{timestamp}.json
+├── ghosts/
+│   ├── site_001/
+│   │   ├── <original_file_name>.jpg
+│   │   └── <original_file_name>.jpg
 ```
 
 Where `documents` is what's returned by `getApplicationDocumentsDirectory`.
@@ -182,7 +187,6 @@ See [motion doc](./motion.md). In summary we use the `geolocator` plugin to do t
 2. Compare distance with every site in array
 3. Show golden ring around the "+" button within 10m 
 
-
 ## Capture interface 
 
 3 aspects of this
@@ -192,22 +196,6 @@ See [motion doc](./motion.md). In summary we use the `geolocator` plugin to do t
 
 We do this in both portrait and landscape mode. 
 There are some tricky aspects of how we pipeline the capture interfaces with the confirmation screens. See [code doc](./code.md).
-
-## Client side syncing 
-
-We have decided to sync at 2 places: 
-
-1. Post login, through an explicity `site_prefetch_screen`. This is so the user doesn't immediately plop into a pipeline and end up with an error saying "ghost image unavailable". 
-2. In the init of every home screen.
-
-2 is triggered everytime the user finishes the pipeline. But 2 is a "best effort" sync, meaning if there is no network, we ignore and carry on so the user can save multiple pipeliens back to back. 
-
-Simple fetch every 24h of sites.json and users.json is option 2. 
-
-## Survey UI 
-
-Simple list of text, radio buttons depending on `SurveyQuestion.type`
-Final submit button closes and saves teh session 
 
 ## Multi-org/user support 
 
@@ -229,23 +217,27 @@ In the login flow we ask for: login name or email + org code and reconstruct usi
 ```
 bucketRoot = "https://fomomon-data.s3.amazonaws.com/$org/"
 ```
+## Client side syncing 
+
+We have decided to sync at 2 places: 
+
+1. Post login, through an explicity `site_prefetch_screen`. This is so the user doesn't immediately plop into a pipeline and end up with an error saying "ghost image unavailable". 
+2. In the init of every home screen.
+
+2 is triggered everytime the user finishes the pipeline. But 2 is a "best effort" sync, meaning if there is no network, we ignore and carry on so the user can save multiple pipeliens back to back. 
+
+Simple fetch every 24h of sites.json and users.json is option 2. 
+
+### Uploads 
+
+1. Upload images 
+2. Replace local paths in session metadata with s3 urls
+3. Upload all session.jsons into the `sessions/` directory
+
+See [docs/upload](./upload.md) for detaials. 
 
 ### App local storage management 
 
 We use services for the local storage. 
 
-### S3 storage management 
-
-1. Upload images 
-2. Replace local paths in session metadata with s3 urls
-3. Upload all session.jsons into the `db/` directory
-
-## Uploads and Sync 
-
-* Atomic uploads 
-	- Store each session locally. 
-	- Only delete sessions after successful upload (all images + JSON).
-	- No need for an uploaded flag.
-	- UI can just show all current local sessions. If it’s not there, it’s
-	  uploaded. If it’s there, it’s pending.
 
