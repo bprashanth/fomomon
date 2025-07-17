@@ -2,19 +2,36 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/services.dart';
 
 import '../models/site.dart';
+import '../models/confirm_screen_args.dart';
+import '../screens/confirm_screen.dart';
 
 class CaptureScreen extends StatefulWidget {
   final String captureMode;
   final Site site;
   final String userId;
+  // The use of these fields is a little tricky. Depending on which comes first
+  // in the pipeline, portrait or landscape, that field will be populated. So
+  // they both start off as null, but through the following cycle:
+  // 1. Capture a portrait image.
+  // 2. Pass it into the confirm screen.
+  // 3. The confirm screen will invoke this screen again for the landscape
+  //    image, with the image set to portraitImagePath.
+  // 4. This screen will capture the landscape image, and pass both landscape
+  //    and portrait images into the confirm screen.
+
+  final String? landscapeImagePath;
+  final String? portraitImagePath;
 
   const CaptureScreen({
     super.key,
     required this.captureMode,
     required this.site,
     required this.userId,
+    this.landscapeImagePath,
+    this.portraitImagePath,
   });
 
   @override
@@ -24,11 +41,22 @@ class CaptureScreen extends StatefulWidget {
 class _CaptureScreenState extends State<CaptureScreen> {
   CameraController? _controller;
   bool _isCameraReady = false;
-  double _opacity = 0.4;
+  double _opacity = 0.2;
 
   @override
   void initState() {
     super.initState();
+
+    // Set the orientation based on the captureMode
+    if (widget.captureMode == 'portrait') {
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+
     _initCamera();
   }
 
@@ -55,25 +83,48 @@ class _CaptureScreenState extends State<CaptureScreen> {
     final filename = '${widget.userId}_${timestamp}_${widget.captureMode}.jpg';
     final filePath = '${tempDir.path}/$filename';
 
-    final file = await _controller!.takePicture();
-    await file.saveTo(filePath);
+    try {
+      final file = await _controller!.takePicture();
+      await file.saveTo(filePath);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    Navigator.of(context).pushNamed(
-      '/confirm',
-      arguments: {
-        'imagePath': filePath,
-        'captureMode': widget.captureMode,
-        'site': widget.site,
-        'userId': widget.userId,
-      },
-    );
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder:
+              (_) => ConfirmScreen(
+                args: ConfirmScreenArgs(
+                  landscapeImagePath:
+                      widget.captureMode == 'landscape'
+                          ? filePath
+                          : widget.landscapeImagePath,
+                  portraitImagePath:
+                      widget.captureMode == 'portrait'
+                          ? filePath
+                          : widget.portraitImagePath,
+                  captureMode: widget.captureMode,
+                  site: widget.site,
+                  userId: widget.userId,
+                ),
+              ),
+        ),
+      );
+    } catch (e) {
+      print("Capture failed: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to capture photo. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
   void dispose() {
     _controller?.dispose();
+    // We don't touch orientation in dispose because it could mess with the
+    // next screens enforced orientation.
     super.dispose();
   }
 
@@ -91,6 +142,15 @@ class _CaptureScreenState extends State<CaptureScreen> {
             ? widget.site.localPortraitPath
             : widget.site.localLandscapePath;
 
+    // Camera stacking order:
+    // - CameraPreview
+    // - GhostOverlay
+    // - Gridlines
+    // - OpacitySlider
+    // - CaptureButton
+    // The stacking order is important, eg we want to show the gridlines
+    // overlaid above the camera preview and ghost image, but not occluding the
+    // opacity slider.
     return Scaffold(
       body: Stack(
         children: [
@@ -100,13 +160,41 @@ class _CaptureScreenState extends State<CaptureScreen> {
             Positioned.fill(
               child: Opacity(
                 opacity: _opacity,
-                child: Image.file(
-                  File(ghostPath),
-                  fit: BoxFit.contain,
-                  alignment: Alignment.center,
-                ),
+                child: Image.file(File(ghostPath), fit: BoxFit.cover),
               ),
             ),
+
+          Positioned.fill(
+            child: Column(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Color.fromARGB(166, 255, 255, 255),
+                          width: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Color.fromARGB(166, 255, 255, 255),
+                          width: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const Expanded(child: SizedBox()),
+              ],
+            ),
+          ),
 
           Positioned(
             right: 16,
