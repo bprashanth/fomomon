@@ -1,20 +1,4 @@
-import 'dart:convert';
-
-class SurveyResponse {
-  final String questionId;
-  final String answer;
-
-  SurveyResponse({required this.questionId, required this.answer});
-
-  Map<String, dynamic> toJson() => {'questionId': questionId, 'answer': answer};
-
-  factory SurveyResponse.fromJson(Map<String, dynamic> json) {
-    return SurveyResponse(
-      questionId: json['questionId'],
-      answer: json['answer'],
-    );
-  }
-}
+import 'survey_response.dart';
 
 class CapturedSession {
   final String sessionId; // e.g. userId_timestamp

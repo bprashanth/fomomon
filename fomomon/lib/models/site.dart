@@ -3,6 +3,8 @@
 /// Data model representing a field site with lat/lng and reference info
 /// Mirrors the structure of entries in `sites.json`
 
+import 'survey_question.dart';
+
 class Site {
   final String id;
   final double lat;
@@ -12,6 +14,7 @@ class Site {
   String? localPortraitPath;
   String? localLandscapePath;
   final String bucketRoot;
+  final List<SurveyQuestion> surveyQuestions;
 
   Site({
     required this.id,
@@ -22,6 +25,7 @@ class Site {
     this.localPortraitPath,
     this.localLandscapePath,
     required this.bucketRoot,
+    required this.surveyQuestions,
   });
 
   factory Site.fromJson(Map<String, dynamic> json, String bucketRoot) {
@@ -32,6 +36,12 @@ class Site {
       referencePortrait: json['reference_portrait'],
       referenceLandscape: json['reference_landscape'],
       bucketRoot: bucketRoot,
+      surveyQuestions:
+          (json['survey'] as List<dynamic>)
+              .map((q) => SurveyQuestion.fromJson(q))
+              .toList(),
     );
   }
+
+  // Site does not have a toJson because we never write to it.
 }
