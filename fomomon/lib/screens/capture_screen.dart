@@ -24,6 +24,9 @@ class CaptureScreen extends StatefulWidget {
 
   final String? landscapeImagePath;
   final String? portraitImagePath;
+  final String name;
+  final String email;
+  final String org;
 
   const CaptureScreen({
     super.key,
@@ -32,6 +35,9 @@ class CaptureScreen extends StatefulWidget {
     required this.userId,
     this.landscapeImagePath,
     this.portraitImagePath,
+    required this.name,
+    required this.email,
+    required this.org,
   });
 
   @override
@@ -105,6 +111,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
                   captureMode: widget.captureMode,
                   site: widget.site,
                   userId: widget.userId,
+                  name: widget.name,
+                  email: widget.email,
+                  org: widget.org,
                 ),
               ),
         ),

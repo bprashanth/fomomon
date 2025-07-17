@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../services/local_image_storage.dart';
 import '../models/confirm_screen_args.dart';
 import '../screens/capture_screen.dart';
+import '../screens/survey_screen.dart';
 
 class ConfirmScreen extends StatefulWidget {
   final ConfirmScreenArgs args;
@@ -49,7 +50,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                 icon: const Icon(Icons.close),
                 label: const Text('Retake'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(144, 54, 22, 19),
+                  backgroundColor: const Color.fromARGB(229, 54, 22, 19),
                   foregroundColor: Colors.red,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(40),
@@ -71,7 +72,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                 icon: const Icon(Icons.check),
                 label: const Text('Use Photo'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(144, 22, 54, 19),
+                  backgroundColor: const Color.fromARGB(229, 22, 54, 19),
                   foregroundColor: Colors.green,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(40),
@@ -127,9 +128,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     if (!context.mounted) return;
 
     if (args.captureMode == 'portrait') {
-      print(
-        '============================Launching next capture for landscape, portraitImagePath: ${savedPath}, landscapeImagePath: ${args.landscapeImagePath}',
-      );
       // Launch next capture
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -139,23 +137,28 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                 captureMode: 'landscape',
                 site: args.site,
                 userId: args.userId,
+                name: args.name,
+                email: args.email,
+                org: args.org,
               ),
         ),
       );
     } else {
-      print(
-        '============================Launching survey, landscapeImagePath: ${savedPath}, portraitImagePath: ${args.portraitImagePath}',
-      );
       // Launch survey
-      Navigator.of(context).pushReplacementNamed(
-        '/survey',
-        arguments: {
-          'userId': args.userId,
-          'site': args.site,
-          'portraitImagePath': args.portraitImagePath!,
-          'landscapeImagePath': savedPath,
-          'timestamp': timestamp.toIso8601String(),
-        },
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder:
+              (_) => SurveyScreen(
+                userId: args.userId,
+                site: args.site,
+                portraitImagePath: args.portraitImagePath!,
+                landscapeImagePath: savedPath,
+                timestamp: timestamp,
+                name: args.name,
+                email: args.email,
+                org: args.org,
+              ),
+        ),
       );
     }
   }

@@ -173,6 +173,8 @@ class SurveyResponse {
 }
 ```
 
+The `SurveyQuestion` object is part of `sites.json`, since it's configured only once at source. However survey questions can be different per site. The `SurveyResponse` is captured once per pipeline. So it's part of the `CapturedSession` data structure. 
+
 ## Location logic 
 
 See [motion doc](./motion.md). In summary we use the `geolocator` plugin to do the following 

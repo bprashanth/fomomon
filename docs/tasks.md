@@ -7,13 +7,43 @@
 
 3. Scaling images (see [docs/aspectratio](./aspectratio.md))
 
-4. Refactor routes into named routes, ideally we would have centralized routing and invoke the pipeline like so
+4. Don't block home screen on prefetching - users in the field must be allowed to run multiple pipelines. Currently we try to re-fetch in home screens init. 
+
+
+5. Auth 
+
+6. First image is without ghost. The how do users set a ghost? Avoid confusion, just don't set one at first. 
+
+### Tech Debt
+
+1. Refactor routes into named routes, ideally we would have centralized routing and invoke the pipeline like so
 ```
 Navigator.of(context).pushReplacementNamed(
   '/capture_landscape',
   arguments: ConfirmScreenArgs(...),
 );
 ```
+2. Extract orientation logic into an OrientationService (see [code.md reentry](code.md)).
+3. Find a cleaner way to manage global state instead of threading through the pipelien 
+	- Current method only works for few screens
+	- A better alternative is to use a `UserSession` singleton
+```
+class UserSession {
+  static String name = '';
+  static String email = '';
+  static String org = '';
+
+  static void set({required String n, required String e, required String o}) {
+    name = n;
+    email = e;
+    org = o;
+  }
+}
+UserSession.set(name: name, email: email, org: org);
+final org = UserSession.org;
+```
+
+
 
 ### Thought issues 
 

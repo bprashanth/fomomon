@@ -13,6 +13,7 @@ import '../widgets/plus_button.dart';
 import 'package:geolocator/geolocator.dart';
 import '../utils/user_utils.dart';
 import '../screens/capture_screen.dart';
+import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -36,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // _nearestSite is the site that is closest to the user's position
   // It is used to determine if the "+" button should be enabled
   Site? _nearestSite;
+  StreamSubscription<Position>? _positionSubscription;
 
   // A note on trigger radius:
   // - Typically, it's 3-5 meters with LocationAccuracy.high
@@ -46,6 +48,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _init();
+  }
+
+  @override
+  void dispose() {
+    _positionSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -62,13 +70,15 @@ class _HomeScreenState extends State<HomeScreen> {
     // Listen to the position stream and update the state with the latest
     // position and the closest site. This is a good place to do any
     // geolocation based processing.
-    GpsService.getPositionStream().listen((userPos) {
-      final nearby = _getClosestSite(userPos, _sites);
-      print("home_screen: userPos: $userPos, nearby: $nearby");
-      setState(() {
-        _userPos = userPos;
-        _nearestSite = nearby;
-      });
+    _positionSubscription = GpsService.getPositionStream().listen((userPos) {
+      if (mounted) {
+        final nearby = _getClosestSite(userPos, _sites);
+        print("home_screen: userPos: $userPos, nearby: $nearby");
+        setState(() {
+          _userPos = userPos;
+          _nearestSite = nearby;
+        });
+      }
     });
   }
 
@@ -101,6 +111,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     context,
                     getUserId(widget.name, widget.email, widget.org),
                     _nearestSite!,
+                    widget.name,
+                    widget.email,
+                    widget.org,
                   );
                 }
               },
@@ -113,7 +126,14 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // Utility function to launch the pipeline screen.
-void _launchPipeline(BuildContext context, String userId, Site site) {
+void _launchPipeline(
+  BuildContext context,
+  String userId,
+  Site site,
+  String name,
+  String email,
+  String org,
+) {
   Navigator.of(context).push(
     MaterialPageRoute(
       builder:
@@ -121,6 +141,9 @@ void _launchPipeline(BuildContext context, String userId, Site site) {
             captureMode: 'portrait',
             site: site,
             userId: userId,
+            name: name,
+            email: email,
+            org: org,
           ),
     ),
   );
