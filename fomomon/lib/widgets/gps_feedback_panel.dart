@@ -63,7 +63,6 @@ class GpsFeedbackPanel extends StatelessWidget {
     if (user == null) return [];
 
     return sites.map((site) {
-      print("gps_panel: building dot for site: ${site.id}");
       final dx = Geolocator.distanceBetween(
         user!.latitude,
         user!.longitude,
@@ -79,6 +78,9 @@ class GpsFeedbackPanel extends StatelessWidget {
 
       final left = 90 + dx * (site.lng > user!.longitude ? 1 : -1) * 0.5;
       final top = 90 + dy * (site.lat > user!.latitude ? 1 : -1) * 0.5;
+      print(
+        "gps_panel: site: ${site.id}, dx: $dx, dy: $dy, left: $left, top: $top, user: ${user!.latitude}, ${user!.longitude}, site: ${site.lat}, ${site.lng}, user: ${user!.latitude}, ${user!.longitude}",
+      );
 
       // The clamp() is used to ensure that the left and top values are within
       // bounds 0-180 pixels. This gives us a range of 360m for sites. Far away

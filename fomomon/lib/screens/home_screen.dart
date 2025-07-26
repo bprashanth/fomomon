@@ -14,6 +14,8 @@ import 'package:geolocator/geolocator.dart';
 import '../utils/user_utils.dart';
 import '../screens/capture_screen.dart';
 import 'dart:async';
+import 'dart:ui';
+import '../widgets/upload_dial_widget.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -38,6 +40,19 @@ class _HomeScreenState extends State<HomeScreen> {
   // It is used to determine if the "+" button should be enabled
   Site? _nearestSite;
   StreamSubscription<Position>? _positionSubscription;
+  Position? _lastAcceptedUserPos;
+
+  // Distance threshold is used to filter out positions that are too close to
+  // the last accepted position. This is used to avoid updating the nearest
+  // site/site marker too often.
+  final double _distanceThreshold = 2.0; // meters
+
+  // Accuracy threshold is used to filter out positions that are too inaccurate
+  // according to the GPS system itself. Accuracy of 10 is the system saying "I
+  // am 68% sure (1SD) that the true location is within 10m of this reported
+  // point". Indoors, the value of this accuracy number could be as high as
+  // 20-100m.
+  final double _accuracyThreshold = 20.0; // meters
 
   // A note on trigger radius:
   // - Typically, it's 3-5 meters with LocationAccuracy.high
@@ -71,14 +86,35 @@ class _HomeScreenState extends State<HomeScreen> {
     // position and the closest site. This is a good place to do any
     // geolocation based processing.
     _positionSubscription = GpsService.getPositionStream().listen((userPos) {
-      if (mounted) {
-        final nearby = _getClosestSite(userPos, _sites);
-        print("home_screen: userPos: $userPos, nearby: $nearby");
-        setState(() {
-          _userPos = userPos;
-          _nearestSite = nearby;
-        });
+      if (!mounted) return;
+
+      // Accuracy filter
+      if (userPos.accuracy > _accuracyThreshold) {
+        print("home_screen: accuracy: ${userPos.accuracy}, skipping");
+        return;
       }
+
+      // Distance threshold filter
+      if (_lastAcceptedUserPos != null) {
+        final distance = Geolocator.distanceBetween(
+          _lastAcceptedUserPos!.latitude,
+          _lastAcceptedUserPos!.longitude,
+          userPos.latitude,
+          userPos.longitude,
+        );
+        if (distance < _distanceThreshold) {
+          print("home_screen: distance: $distance, skipping");
+          return;
+        }
+      }
+
+      final nearby = _getClosestSite(userPos, _sites);
+      print("home_screen: userPos: $userPos, nearby: $nearby");
+      setState(() {
+        _userPos = userPos;
+        _nearestSite = nearby;
+        _lastAcceptedUserPos = userPos;
+      });
     });
   }
 
@@ -98,28 +134,94 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          GpsFeedbackPanel(user: _userPos, sites: _sites),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: PlusButton(
-              enabled: _nearestSite != null,
-              onPressed: () {
-                if (_nearestSite != null) {
-                  _launchPipeline(
-                    context,
-                    getUserId(widget.name, widget.email, widget.org),
-                    _nearestSite!,
-                    widget.name,
-                    widget.email,
-                    widget.org,
-                  );
-                }
-              },
-            ),
-          ),
-        ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final screenHeight = constraints.maxHeight;
+          final gpsTop = screenHeight * 0.40; // 12% from top
+          final fomoTop = screenHeight * 0.05; // 4% from top
+          final uploadTop = screenHeight * 0.20; // 10% from top
+
+          return Stack(
+            children: [
+              // FOMO top-center
+              Positioned(
+                top: fomoTop,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Text(
+                    'FOMO',
+                    style: TextStyle(
+                      color: const Color.fromARGB(255, 199, 220, 237),
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'trump',
+                    ),
+                  ),
+                ),
+              ),
+              // Upload dial widget below FOMO
+              Positioned(
+                top: uploadTop, // ~below FOMO
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: UploadDialWidget(
+                    // No need to pass anything here, the widget will handle it
+                  ),
+                ),
+              ),
+
+              // GPS panel with relative top
+              Positioned(
+                top: gpsTop,
+                left: 16,
+                right: 16,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.3),
+                        ),
+                      ),
+                      child: GpsFeedbackPanel(user: _userPos, sites: _sites),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Floating plus button (still anchored to bottom, which is fine)
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: 32),
+                  child: PlusButton(
+                    enabled: _nearestSite != null,
+                    onPressed: () {
+                      if (_nearestSite != null) {
+                        _launchPipeline(
+                          context,
+                          getUserId(widget.name, widget.email, widget.org),
+                          _nearestSite!,
+                          widget.name,
+                          widget.email,
+                          widget.org,
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
