@@ -10,6 +10,8 @@ class CapturedSession {
   final List<SurveyResponse> responses;
   final DateTime timestamp;
   final String userId;
+  String? portraitImageUrl;
+  String? landscapeImageUrl;
   bool isUploaded;
 
   CapturedSession({
@@ -22,6 +24,8 @@ class CapturedSession {
     required this.responses,
     required this.timestamp,
     required this.userId,
+    this.portraitImageUrl = '',
+    this.landscapeImageUrl = '',
     this.isUploaded = false,
   });
 
@@ -32,6 +36,8 @@ class CapturedSession {
     'longitude': longitude,
     'portraitImagePath': portraitImagePath,
     'landscapeImagePath': landscapeImagePath,
+    'portraitImageUrl': portraitImageUrl,
+    'landscapeImageUrl': landscapeImageUrl,
     'responses': responses.map((r) => r.toJson()).toList(),
     'timestamp': timestamp.toIso8601String(),
     'isUploaded': isUploaded,
@@ -46,6 +52,8 @@ class CapturedSession {
       longitude: json['longitude'],
       portraitImagePath: json['portraitImagePath'],
       landscapeImagePath: json['landscapeImagePath'],
+      portraitImageUrl: json['portraitImageUrl'] ?? '',
+      landscapeImageUrl: json['landscapeImageUrl'] ?? '',
       responses:
           (json['responses'] as List)
               .map((r) => SurveyResponse.fromJson(r))

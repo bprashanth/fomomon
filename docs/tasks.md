@@ -9,7 +9,6 @@
 
 4. Don't block home screen on prefetching - users in the field must be allowed to run multiple pipelines. Currently we try to re-fetch in home screens init. 
 
-
 5. Auth 
 
 6. First image is without ghost. The how do users set a ghost? Avoid confusion, just don't set one at first. 
@@ -17,6 +16,14 @@
 7. Metrics and consolidated logging 
 
 8. URLs and repeatability: if a session or image is uploaded to some url, and there is an app crash before we can mark the session as uploaded, will the next url created for the same session be different or the same? do we need to garbage collect stray images/sessions in s3? 
+
+9. GPS accuracy: what happens if we don't get an accurate stream in the field? can we detect motion anyway and flag this to the user? see fomonon/pull/11 for details 
+
+10. Marking files as uploaded: currently we just mark local sessions as uploaded instead of deleting them. This is a safeguard. While we will only ever re-upload un-uploaded files, as long as the file exists locally, we can push an app update that re-uploads all of them. While this gives us data safety, it is also a "memory leak". When we decide to GA we should add some scripting that will delete all stale files. 
+
+11. Upload errors: we should flag upload errors as more approachable UI errors. Currently we just log it, we should at least show a snackbar. 
+
+12. Timestamps: we use timestamps in file names to make them unique. Unfortunately this can backfire with clock skew on a phone. 
 
 ### Tech Debt
 

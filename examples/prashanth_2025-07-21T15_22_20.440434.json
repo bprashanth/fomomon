@@ -1,0 +1,19 @@
+{
+  "sessionId": "prashanth_2025-07-21T15:22:20.440434",
+  "siteId": "left_6th",
+  "latitude": 12.977215,
+  "longitude": 77.638222,
+  "portraitImagePath": "/data/user/0/com.example.fomomon/app_flutter/images/left_6th/prashanth_2025-07-21_152215_portrait.jpg",
+  "landscapeImagePath": "/data/user/0/com.example.fomomon/app_flutter/images/left_6th/prashanth_2025-07-21_152220_landscape.jpg",
+  "portraitImageUrl": "https://fomomon.s3.amazonaws.com/t4gc/left_6th/prashanth_2025-07-21T15_22_20.440434_portrait.jpg",
+  "landscapeImageUrl": "https://fomomon.s3.amazonaws.com/t4gc/left_6th/prashanth_2025-07-21T15_22_20.440434_landscape.jpg",
+  "responses": [
+    {
+      "questionId": "q2",
+      "answer": "No"
+    }
+  ],
+  "timestamp": "2025-07-21T15:22:20.440434",
+  "isUploaded": false,
+  "userId": "prashanth"
+}

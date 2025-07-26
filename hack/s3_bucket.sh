@@ -11,6 +11,7 @@ BUCKET_NAME=""
 CREATE_BUCKET=false
 BUCKET_PATH=""
 FILE_PATH=""
+PUBLIC_WRITE=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -31,11 +32,16 @@ while [[ $# -gt 0 ]]; do
             FILE_PATH="$2"
             shift 2
             ;;
+        --public-write)
+            PUBLIC_WRITE="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Usage:"
             echo "  $0 --bucket_name <name> --create"
             echo "  $0 --bucket_name <name> --path <path> --file <FILE_PATH>"
+            echo "  $0 --bucket_name <name> --public-write <true|false>"
             exit 1
             ;;
     esac
@@ -80,6 +86,55 @@ if [[ "$CREATE_BUCKET" == true ]]; then
     aws s3 website "s3://$BUCKET_NAME/" --index-document index.html
     
     echo "Bucket $BUCKET_NAME created successfully with public permissions"
+    exit 0
+fi
+
+# Handle public write policy changes
+if [[ -n "$PUBLIC_WRITE" ]]; then
+    if [[ "$PUBLIC_WRITE" == "true" ]]; then
+        echo "Enabling public write access for bucket: $BUCKET_NAME"
+        
+        # Create policy that allows both read and write access
+        aws s3api put-bucket-policy --bucket "$BUCKET_NAME" --policy "{
+          \"Version\": \"2012-10-17\",
+          \"Statement\": [{
+            \"Sid\": \"PublicReadGetObject\",
+            \"Effect\": \"Allow\",
+            \"Principal\": \"*\",
+            \"Action\": \"s3:GetObject\",
+            \"Resource\": \"arn:aws:s3:::$BUCKET_NAME/*\"
+          }, {
+            \"Sid\": \"PublicWritePutObject\",
+            \"Effect\": \"Allow\",
+            \"Principal\": \"*\",
+            \"Action\": \"s3:PutObject\",
+            \"Resource\": \"arn:aws:s3:::$BUCKET_NAME/*\"
+          }]
+        }"
+        
+        echo "Public write access enabled for bucket $BUCKET_NAME"
+        
+    elif [[ "$PUBLIC_WRITE" == "false" ]]; then
+        echo "Disabling public write access for bucket: $BUCKET_NAME"
+        
+        # Restore original policy (read-only access)
+        aws s3api put-bucket-policy --bucket "$BUCKET_NAME" --policy "{
+          \"Version\": \"2012-10-17\",
+          \"Statement\": [{
+            \"Sid\": \"PublicReadGetObject\",
+            \"Effect\": \"Allow\",
+            \"Principal\": \"*\",
+            \"Action\": \"s3:GetObject\",
+            \"Resource\": \"arn:aws:s3:::$BUCKET_NAME/*\"
+          }]
+        }"
+        
+        echo "Public write access disabled for bucket $BUCKET_NAME"
+        
+    else
+        echo "Error: --public-write must be 'true' or 'false'"
+        exit 1
+    fi
     exit 0
 fi
 

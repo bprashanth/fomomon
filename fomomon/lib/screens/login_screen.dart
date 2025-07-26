@@ -34,6 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final email = _emailController.text.trim();
     final org = _orgController.text.trim();
 
+    // TODO(prashanth@): log the user in.
     if (name.isNotEmpty || email.isNotEmpty && org.isNotEmpty) {
       AppConfig.configure(bucketName: _appName.toLowerCase(), org: org);
 

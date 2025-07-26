@@ -167,6 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 right: 0,
                 child: Center(
                   child: UploadDialWidget(
+                    sites: _sites,
                     // No need to pass anything here, the widget will handle it
                   ),
                 ),

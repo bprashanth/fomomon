@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import '../services/upload_service.dart';
 import '../services/local_session_storage.dart';
+import '../models/site.dart';
 
 class UploadDialWidget extends StatefulWidget {
-  const UploadDialWidget({super.key});
+  const UploadDialWidget({super.key, required this.sites});
+  final List<Site> sites;
 
   @override
   State<UploadDialWidget> createState() => _UploadDialWidgetState();
@@ -29,12 +32,12 @@ class _UploadDialWidgetState extends State<UploadDialWidget> {
   }
 
   void _onUploadPressed() async {
-    // TODDO(prashanth@): UploadService.uploadAll(sessions)
-    for (int i = 0; i < total; i++) {
-      // Simulate upload
-      await Future.delayed(const Duration(milliseconds: 500));
-      setState(() => uploaded++);
-    }
+    await UploadService.instance.uploadAllSessions(
+      sites: widget.sites,
+      onProgress: () {
+        setState(() => uploaded++);
+      },
+    );
   }
 
   @override
