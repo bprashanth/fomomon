@@ -4,12 +4,14 @@
     {
       "user_id": "prashanthb",
       "name": "Prashanth B",
-      "email": "prashanth@tech4goodcommunity.com"
+      "email": "prashanth@tech4goodcommunity.com",
+      "password": "insert_password_here"
     },
     {
       "user_id": "lakshmi_n",
       "name": "Lakshmi Narayan",
-      "email": "lakshmi@ngo.org"
+      "email": "lakshmi@ngo.org",
+      "password": "insert_password_here"
     }
   ]
 }

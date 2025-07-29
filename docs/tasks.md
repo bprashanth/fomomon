@@ -9,7 +9,14 @@
 
 4. Don't block home screen on prefetching - users in the field must be allowed to run multiple pipelines. Currently we try to re-fetch in home screens init. 
 
-5. Auth 
+5. Auth
+	- script: limits on iam roles in aws 
+	- script: GC roles against buckets in the bucket change case  
+	- currently the base bucket starts off as public read no write. Running
+	  `add_uses.py` makes this per-org read/write. Instead we should keep
+`fomomon/*` public except for prefixes (eg adding a new org adds this org to
+the `Deny` list in the root bucket policy). OR we can make fomomon public for
+root assets only, not `fomomon/*` wildcard. Needs some thought. 
 
 6. First image is without ghost. The how do users set a ghost? Avoid confusion, just don't set one at first. 
 
