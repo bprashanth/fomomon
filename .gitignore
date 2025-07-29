@@ -48,6 +48,9 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
+# User config not sent to git to safeguard pii
+config/users/
+
 # passwords and other sensitive material
 *.key
 *.password
