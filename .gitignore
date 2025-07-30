@@ -49,7 +49,7 @@ coverage.xml
 docs/_build/
 
 # User config not sent to git to safeguard pii
-config/users/
+config/
 
 # passwords and other sensitive material
 *.key

@@ -79,7 +79,10 @@ class _HomeScreenState extends State<HomeScreen> {
     // Typically, all images should have been prefetched at the
     // site_prefetch_screen, on login. So this fetch operation should be
     // incremental, i.e only new reference images, new sites etc.
-    final sites = await SiteService.fetchSitesAndPrefetchImages();
+    //
+    // Use async mode to return cached data immediately while fetching fresh
+    // data in background.
+    final sites = await SiteService.fetchSitesAndPrefetchImages(async: true);
     setState(() => _sites = sites);
 
     // Listen to the position stream and update the state with the latest

@@ -9,15 +9,46 @@ class AppConfig {
   // Production variables
   static String? _bucketName;
   static String? _org;
+  static String? _region;
+
+  // Organization data mapping org codes to default values
+  static const Map<String, Map<String, String>> organizationData = {
+    't4gc': {'email': 'prashanth@tech4goodcommunity.com', 'name': 'Prashanth'},
+    'testorg': {'email': 'hari@foundation', 'name': 'asimov'},
+    'ncf': {'email': 'demo@example.com', 'name': 'Srini'},
+  };
 
   // Configure is called only once, at login, with the user info fields.
-  static void configure({required String bucketName, required String org}) {
+  static void configure({
+    required String bucketName,
+    String org = 't4gc',
+    String region = 'ap-south-1',
+  }) {
     _bucketName = bucketName;
     _org = org;
+    _region = region;
   }
 
   static void setLocalRoot(String path) {
     _localRoot = path;
+  }
+
+  static void setOrg(String org) {
+    _org = org;
+  }
+
+  static String get bucketName {
+    if (_bucketName == null) {
+      throw Exception('AppConfig is not configured with bucketName');
+    }
+    return _bucketName!;
+  }
+
+  static String get region {
+    if (_region == null) {
+      throw Exception('AppConfig is not configured with region');
+    }
+    return _region!;
   }
 
   static String getResolvedBucketRoot() {

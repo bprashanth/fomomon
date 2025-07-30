@@ -14,6 +14,7 @@ class UploadDialWidget extends StatefulWidget {
 class _UploadDialWidgetState extends State<UploadDialWidget> {
   int uploaded = 0;
   int total = 0;
+  bool hasError = false;
 
   @override
   void initState() {
@@ -32,17 +33,29 @@ class _UploadDialWidgetState extends State<UploadDialWidget> {
   }
 
   void _onUploadPressed() async {
-    await UploadService.instance.uploadAllSessions(
-      sites: widget.sites,
-      onProgress: () {
-        setState(() => uploaded++);
-      },
-    );
+    setState(() {
+      hasError = false;
+    });
+    try {
+      await UploadService.instance.uploadAllSessions(
+        sites: widget.sites,
+        onProgress: () {
+          setState(() => uploaded++);
+        },
+      );
+    } catch (e) {
+      setState(() {
+        hasError = true;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final label = total == 0 ? '0/0 files' : '$uploaded/$total';
+    final buttonText = hasError ? 'Tap to Retry' : 'Tap to Upload';
+    final buttonTitleTextColor = hasError ? Colors.redAccent : Colors.white70;
+    final buttonTextColor = hasError ? Colors.redAccent : Colors.white;
 
     return GestureDetector(
       onTap: total == 0 ? null : _onUploadPressed,
@@ -65,8 +78,8 @@ class _UploadDialWidgetState extends State<UploadDialWidget> {
               ),
               Text(
                 label,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: buttonTextColor,
                   fontSize: 12,
                   fontFamily: 'monospace',
                 ),
@@ -74,10 +87,10 @@ class _UploadDialWidgetState extends State<UploadDialWidget> {
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Tap to Upload',
+          Text(
+            buttonText,
             style: TextStyle(
-              color: Colors.white70,
+              color: buttonTitleTextColor,
               fontSize: 10,
               fontFamily: 'monospace',
             ),

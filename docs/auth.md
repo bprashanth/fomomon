@@ -33,6 +33,8 @@ This will
 
 But users will be able to re-login right after you re-run the `add_users` script. 
 
+
+
 ## Overview 
 
 AWS Cognito has 2 components for access
@@ -49,6 +51,7 @@ AWS Cognito has 2 components for access
 	- The identity pool can map different IAMs based on the incoming user pool config
 
 Both these are bound to a region, eg `ap-south-1`. 
+See [docs/signing](signing.md) for a better flow diagram of how this works. 
 
 ## Users 
 
@@ -72,20 +75,39 @@ Users are added via the `users.json`
 
 ```
 
-## Scoping permissions per org
+## Validity and Scope 
 
 The `bucket_root` from `users.json` is included in the IAM policy attached to the identity pool.
 
+## On the validity of URLs 
+
+There are 2 options, and we take the former currently
+1. Allow puublic GET on the bucket and include the direct url to the object 
+2. Somehow keep re-signing urls once in seven days 
+	- Write a lambda service 
+	- Maintain a api server 
 
 
 # Auth service 
 
-Pseudo code 
+The question of libraries in the auth service is pertinent
+1. Using Amplify which is an official AWS library, ties us closer to AWS. It also requires heavier setup (cli based init etc). If we assume we will _always_ use s3 for object store and cognito for auth, we are not tied too heavily to aws - so maybe this is a good argument for it. 
+2. The use of community maintained libraries lets us swap out one of these, or just get off the ground without too much cli initialization. 
+
+For now, we have chosen 2, mostly because it allows manual configuration of User Pool, App Client, identity pool, s3 buckets. Here is the flow of control
+```
+1. Get temporary AWS credentials
+2. Create signed headers with AWS Signature V4
+3. Upload file with signed headers 
+4. Return normal S3 URL 
+```
+
+## Pseudo code 
+
+This is the skeleton auth service 
+
 ```
 class AuthService {
-  AuthService._privateConstructor();
-  static final AuthService instance = AuthService._privateConstructor();
-
   String? _idToken;
   String? _refreshToken;
   DateTime? _expiryTime;
@@ -95,6 +117,7 @@ class AuthService {
     // Store idToken, refreshToken, expiryTime
   }
 
+  // This returns the "user" token
   Future<String?> getValidIdToken() async {
     if (_idToken == null || DateTime.now().isAfter(_expiryTime!)) {
       await _refreshTokens();
@@ -106,9 +129,14 @@ class AuthService {
     // Use refreshToken to get new idToken
     // If refreshToken expired, force re-login
   }
+
+  Future<Map<String, dynamic>> getUploadCredentials() async {
+    // Generate identity credentials using the user credentials
+    // These identity creds are used to sign the upload url. 
+  }
 }
 ```
-
+For more details on url signing, see [docs/signing.md](signing.md)
 
 ## Appendix 
 

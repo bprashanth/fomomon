@@ -15,10 +15,36 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 class SiteService {
-  static Future<List<Site>> fetchSitesAndPrefetchImages() async {
+  static Future<List<Site>> fetchSitesAndPrefetchImages({
+    bool async = false,
+  }) async {
     final root = AppConfig.getResolvedBucketRoot();
     final path = "$root/sites.json";
 
+    // If async mode is enabled, try to return cached data immediately
+    if (async) {
+      try {
+        final cachedSites = await _loadCachedSites();
+        if (cachedSites.isNotEmpty) {
+          print(
+            "Async mode: Returning ${cachedSites.length} cached sites immediately",
+          );
+
+          // Start background fetch to update cache
+          _fetchAndCacheSitesInBackground(path);
+
+          return cachedSites;
+        }
+      } catch (e) {
+        print("Async mode: Failed to load cached sites: $e");
+      }
+    }
+
+    // Synchronous fetch (either async=false or no cached data available)
+    return await _fetchSitesSynchronously(path);
+  }
+
+  static Future<List<Site>> _fetchSitesSynchronously(String path) async {
     try {
       String jsonStr;
 
@@ -26,6 +52,9 @@ class SiteService {
         final response = await http.get(Uri.parse(path));
         if (response.statusCode != 200) throw Exception("HTTP error");
         jsonStr = response.body;
+
+        // Cache the successful response
+        await _cacheSitesJson(jsonStr);
       } else if (path.startsWith("file://")) {
         final file = File(Uri.parse(path).toFilePath());
         jsonStr = await file.readAsString();
@@ -33,6 +62,7 @@ class SiteService {
         throw Exception("Unsupported bucketRoot scheme");
       }
 
+      // TODO(prashanth@): use the prefetchImagesInBackground() function here.
       final data = jsonDecode(jsonStr);
       print("Fetched sites: $data");
       final List<Site> sites =
@@ -89,8 +119,102 @@ class SiteService {
 
       return sites;
     } catch (e) {
-      print("Failed to fetch sites: $e");
+      print("Failed to fetch sites from network: $e");
+      print("Attempting to load cached sites.json");
+
+      // Try to load from cache
+      try {
+        final cachedSites = await _loadCachedSites();
+        if (cachedSites.isNotEmpty) {
+          print("Successfully loaded ${cachedSites.length} sites from cache");
+          return cachedSites;
+        }
+      } catch (cacheError) {
+        print("Failed to load cached sites: $cacheError");
+      }
+
+      print("No cached sites available, returning empty list");
       return [];
+    }
+  }
+
+  static Future<void> _fetchAndCacheSitesInBackground(String path) async {
+    try {
+      print("Background fetch: Starting to fetch fresh sites data");
+
+      if (!path.startsWith("http")) {
+        print("Background fetch: Skipping non-HTTP path");
+        return;
+      }
+
+      final response = await http.get(Uri.parse(path));
+      if (response.statusCode != 200) {
+        print("Background fetch: HTTP error ${response.statusCode}");
+        return;
+      }
+
+      // Cache the fresh data
+      await _cacheSitesJson(response.body);
+      print("Background fetch: Successfully cached fresh sites data");
+
+      _prefetchImagesInBackground(response.body);
+    } catch (e) {
+      print("Background fetch: Failed to fetch fresh sites data: $e");
+    }
+  }
+
+  static Future<void> _prefetchImagesInBackground(String jsonStr) async {
+    try {
+      final data = jsonDecode(jsonStr);
+      final List<Site> sites =
+          (data['sites'] as List)
+              .map((siteJson) => Site.fromJson(siteJson, data['bucket_root']))
+              .toList();
+
+      print(
+        "Background prefetch: Starting to prefetch images for ${sites.length} sites",
+      );
+
+      for (final site in sites) {
+        if (site.referenceLandscape.isEmpty ||
+            site.referencePortrait.isEmpty ||
+            site.bucketRoot.isEmpty) {
+          continue;
+        }
+
+        String getFileName(String path) {
+          final uri = Uri.parse(path);
+          return uri.pathSegments.isNotEmpty ? uri.pathSegments.last : path;
+        }
+
+        final landscapeUrl =
+            '${site.bucketRoot.endsWith('/') ? site.bucketRoot : '${site.bucketRoot}/'}${site.referenceLandscape}';
+        final portraitUrl =
+            '${site.bucketRoot.endsWith('/') ? site.bucketRoot : '${site.bucketRoot}/'}${site.referencePortrait}';
+
+        final landscapeFileName = getFileName(site.referenceLandscape);
+        final portraitFileName = getFileName(site.referencePortrait);
+
+        // Prefetch both images in parallel
+        await Future.wait([
+          _ensureCachedImage(
+            remoteUrl: landscapeUrl,
+            remoteFileName: landscapeFileName,
+            siteId: site.id,
+          ),
+          _ensureCachedImage(
+            remoteUrl: portraitUrl,
+            remoteFileName: portraitFileName,
+            siteId: site.id,
+          ),
+        ]);
+
+        print("Background prefetch: Cached images for site ${site.id}");
+      }
+
+      print("Background prefetch: Completed for all sites");
+    } catch (e) {
+      print("Background prefetch: Failed to prefetch images: $e");
     }
   }
 
@@ -129,5 +253,45 @@ class SiteService {
       print("site_service: Local file exists, skipping fetch");
     }
     return localPath;
+  }
+
+  static Future<void> _cacheSitesJson(String jsonStr) async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final cacheDir = Directory('${dir.path}/cache');
+      if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
+
+      final cacheFile = File('${cacheDir.path}/sites.json');
+      await cacheFile.writeAsString(jsonStr);
+      print("Cached sites.json successfully");
+    } catch (e) {
+      print("Failed to cache sites.json: $e");
+    }
+  }
+
+  static Future<List<Site>> _loadCachedSites() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final cacheFile = File('${dir.path}/cache/sites.json');
+
+      if (!await cacheFile.exists()) {
+        print("No cached sites.json found");
+        return [];
+      }
+
+      final jsonStr = await cacheFile.readAsString();
+      final data = jsonDecode(jsonStr);
+
+      final List<Site> sites =
+          (data['sites'] as List)
+              .map((siteJson) => Site.fromJson(siteJson, data['bucket_root']))
+              .toList();
+
+      print("Loaded ${sites.length} sites from cache");
+      return sites;
+    } catch (e) {
+      print("Error loading cached sites: $e");
+      return [];
+    }
   }
 }
