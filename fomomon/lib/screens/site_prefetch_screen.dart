@@ -88,7 +88,8 @@ class _SitePrefetchScreenState extends State<SitePrefetchScreen>
             ),
             clipBehavior: Clip.hardEdge,
             child: Image.asset(
-              'assets/images/loading.png',
+              // 'assets/images/loading.png',
+              'assets/images/loading_icon.png',
               fit: BoxFit.scaleDown,
             ),
           ),
