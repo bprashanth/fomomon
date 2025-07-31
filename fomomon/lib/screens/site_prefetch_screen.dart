@@ -38,7 +38,9 @@ class _SitePrefetchScreenState extends State<SitePrefetchScreen>
 
   Future<void> _fetchSites() async {
     try {
-      await SiteService.fetchSitesAndPrefetchImages();
+      // Use synchronous mode for initial prefetch to ensure all data is loaded.
+      // Subsequent fetches are done in the homescreen, async.
+      await SiteService.fetchSitesAndPrefetchImages(async: false);
 
       await Future.delayed(const Duration(milliseconds: 500));
       if (mounted) {

@@ -67,22 +67,42 @@ class _CaptureScreenState extends State<CaptureScreen> {
   }
 
   Future<void> _initCamera() async {
-    final cameras = await availableCameras();
-    final backCam = cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.back,
-    );
+    try {
+      final cameras = await availableCameras();
+      if (!mounted) return; // Check if widget is still mounted
 
-    _controller = CameraController(
-      backCam,
-      ResolutionPreset.max,
-      enableAudio: false,
-    );
-    await _controller!.initialize();
-    setState(() => _isCameraReady = true);
+      final backCam = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+      );
+
+      _controller = CameraController(
+        backCam,
+        ResolutionPreset.max,
+        enableAudio: false,
+      );
+
+      if (!mounted) return; // Check again before initializing
+
+      await _controller!.initialize();
+
+      if (mounted) {
+        setState(() => _isCameraReady = true);
+      }
+    } catch (e) {
+      print("Camera initialization failed: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to initialize camera. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _capturePhoto() async {
-    if (!_controller!.value.isInitialized) return;
+    if (!_controller!.value.isInitialized || !mounted) return;
 
     final tempDir = await getTemporaryDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -91,6 +111,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
     try {
       final file = await _controller!.takePicture();
+
+      if (!mounted) return; // Check if still mounted after capture
+
       await file.saveTo(filePath);
 
       if (!mounted) return;
@@ -120,18 +143,30 @@ class _CaptureScreenState extends State<CaptureScreen> {
       );
     } catch (e) {
       print("Capture failed: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to capture photo. Please try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to capture photo. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    // Properly dispose the camera controller asynchronously
+    _controller
+        ?.dispose()
+        .then((_) {
+          // Camera disposed successfully
+        })
+        .catchError((error) {
+          // Log any disposal errors but don't crash
+          print("Camera disposal error: $error");
+        });
+
     // We don't touch orientation in dispose because it could mess with the
     // next screens enforced orientation.
     super.dispose();
