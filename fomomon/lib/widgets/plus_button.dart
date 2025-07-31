@@ -16,7 +16,9 @@ class PlusButton extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 48.0),
       child: GestureDetector(
-        onTap: enabled ? onPressed : null,
+        // TODO(prashanth@): do we want to guard this with enabled?
+        // We should take a non-enabled press as "add site"?
+        onTap: onPressed,
         child: Container(
           width: 80,
           height: 80,

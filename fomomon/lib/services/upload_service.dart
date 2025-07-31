@@ -48,10 +48,25 @@ class UploadService {
     final sessions = await LocalSessionStorage.loadAllSessions();
     final unuploaded = sessions.where((s) => !s.isUploaded);
 
+    final List<String> errors = [];
+
     for (final session in unuploaded) {
-      await _uploadSession(session, sites);
-      // await LocalSessionStorage.markSessionUploaded(session.sessionId);
-      onProgress?.call();
+      try {
+        await _uploadSession(session, sites);
+        // await LocalSessionStorage.markSessionUploaded(session.sessionId);
+        onProgress?.call();
+      } catch (e) {
+        final errorMessage =
+            "Failed to upload session ${session.sessionId}: $e";
+        print("upload_service: $errorMessage");
+        errors.add(errorMessage);
+        // Continue with next session instead of stopping
+      }
+    }
+
+    // If there were any errors, throw a combined error
+    if (errors.isNotEmpty) {
+      throw Exception("Upload completed with errors:\n${errors.join('\n')}");
     }
   }
 
@@ -60,7 +75,18 @@ class UploadService {
     CapturedSession session,
     List<Site> sites,
   ) async {
-    final site = sites.firstWhere((s) => s.id == session.siteId);
+    Site? site;
+    try {
+      site = sites.firstWhere((s) => s.id == session.siteId);
+    } catch (e) {
+      throw Exception(
+        "Site with ID '${session.siteId}' not found in sites list. Available sites: ${sites.map((s) => s.id).join(', ')}",
+      );
+    }
+
+    print(
+      "upload_service: uploading session: ${session.sessionId} with site ${site.id}",
+    );
     final timestampStr = _sanitizeTimestamp(session.timestamp);
     final portraitRemotePath =
         '${site.id}/${session.userId}_${timestampStr}_portrait.jpg';

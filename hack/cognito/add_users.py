@@ -86,95 +86,107 @@ def get_or_create_identity_pool(name, user_pool_id, app_client_id, region):
 
 def get_or_create_role(role_name, bucket_root, write_access, identity_pool_id):
     # Check if role exists
+    role_exists = False
     try:
         role = iam.get_role(RoleName=role_name)
-        return role['Role']['Arn']
+        role_exists = True
+        print(f"Role {role_name} already exists, will update policy")
     except iam.exceptions.NoSuchEntityException:
-        pass
+        role_exists = False
+        print(f"Role {role_name} does not exist, creating new role")
 
-    # Create role with trust policy
-    trust_policy = {
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Effect": "Allow",
-            "Principal": {"Federated": "cognito-identity.amazonaws.com"},
-            "Action": "sts:AssumeRoleWithWebIdentity",
-            "Condition": {
-                "StringEquals": {
-                    "cognito-identity.amazonaws.com:aud": identity_pool_id
-                },
-                "ForAnyValue:StringLike": {
-                    "cognito-identity.amazonaws.com:amr": "authenticated"
+    # Create role with trust policy if it doesn't exist
+    if not role_exists:
+        trust_policy = {
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": {"Federated": "cognito-identity.amazonaws.com"},
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        "cognito-identity.amazonaws.com:aud": identity_pool_id
+                    },
+                    "ForAnyValue:StringLike": {
+                        "cognito-identity.amazonaws.com:amr": "authenticated"
+                    }
                 }
-            }
-        }]
-    }
-    role = iam.create_role(
-        RoleName=role_name,
-        AssumeRolePolicyDocument=json.dumps(trust_policy)
-    )
+            }]
+        }
+        role = iam.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+        print(f"Created new role {role_name}")
+    else:
+        role = role
 
     # Build policy document
     actions = ["s3:GetObject"]
     if write_access:
         actions.append("s3:PutObject")
 
-    # Convert bucket_root URL to proper S3 ARN format
-    # bucket_root format: "https://fomomon.s3.amazonaws.com/t4gc/"
+    # Extract org name from bucket_root URL
+    # bucket_root format: "https://fomomon.s3.amazonaws.com/testorg/"
     print(f"Processing bucket_root: {bucket_root}")
 
-    # Extract bucket name and path from URL
+    # Extract bucket name and org path from URL
     if bucket_root.startswith("https://"):
         # Remove https:// and .s3.amazonaws.com/
         bucket_path = bucket_root.replace(
             "https://", "").replace(".s3.amazonaws.com", "")
         print(f"After removing https:// and .s3.amazonaws.com/: {bucket_path}")
 
-        # Split into bucket name and path
+        # Split into bucket name and org path
         if "/" in bucket_path:
-            bucket_name, path = bucket_path.split("/", 1)
-            # Remove trailing slash from path
-            path = path.rstrip("/")
-            s3_resource = f"arn:aws:s3:::{bucket_name}/{path}/*"
-            print(f"Bucket name: {bucket_name}, Path: {path}")
+            bucket_name, org_path = bucket_path.split("/", 1)
+            # Remove trailing slash from org path
+            org_path = org_path.rstrip("/")
+            print(f"Bucket name: {bucket_name}, Org path: {org_path}")
         else:
-            s3_resource = f"arn:aws:s3:::{bucket_path}/*"
-            print(f"Bucket name only: {bucket_path}")
+            bucket_name = bucket_path
+            org_path = ""
+            print(f"Bucket name only: {bucket_name}, no org path")
     else:
         # Fallback if not a URL format
-        s3_resource = f"arn:aws:s3:::{bucket_root}*"
-        print(f"Using fallback format: {s3_resource}")
+        bucket_name = bucket_root
+        org_path = ""
+        print(f"Using fallback format: {bucket_name}")
 
-    print(f"Final S3 resource ARN: {s3_resource}")
-
-    # Extract bucket name for more permissive policy
-    bucket_name_only = s3_resource.split("/")[0].replace("arn:aws:s3:::", "")
-    print(f"Bucket name only: {bucket_name_only}")
+    # Build S3 resource ARNs for the org path
+    if org_path:
+        s3_resources = [
+            f"arn:aws:s3:::{bucket_name}/{org_path}/*",
+            f"arn:aws:s3:::{bucket_name}/{org_path}",
+            f"arn:aws:s3:::{bucket_name}/{org_path}/"
+        ]
+        print(f"Org-specific S3 resources: {s3_resources}")
+    else:
+        s3_resources = [
+            f"arn:aws:s3:::{bucket_name}/*",
+            f"arn:aws:s3:::{bucket_name}",
+            f"arn:aws:s3:::{bucket_name}/"
+        ]
+        print(f"Bucket-wide S3 resources: {s3_resources}")
 
     policy_doc = {
         "Version": "2012-10-17",
         "Statement": [{
             "Effect": "Allow",
             "Action": actions,
-            "Resource": [
-                s3_resource,
-                # Allow access to the exact path without wildcard
-                s3_resource.replace("/*", ""),
-                # Allow access to the path with trailing slash
-                s3_resource.replace("/*", "/"),
-                # Allow access to the entire bucket (for testing)
-                # f"arn:aws:s3:::{bucket_name_only}/*"
-            ]
+            "Resource": s3_resources
         }]
     }
 
     print(f"Policy document: {json.dumps(policy_doc, indent=2)}")
 
+    # Always update the policy (whether role existed or not)
     iam.put_role_policy(
         RoleName=role_name,
         PolicyName=f"{role_name}-policy",
         PolicyDocument=json.dumps(policy_doc)
     )
+    print(f"Updated policy for role {role_name}")
 
     return role['Role']['Arn']
 

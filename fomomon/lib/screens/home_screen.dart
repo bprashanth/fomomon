@@ -37,8 +37,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Position? _userPos;
   List<Site> _sites = [];
   // _nearestSite is the site that is closest to the user's position
-  // It is used to determine if the "+" button should be enabled
+  // It is used to launch the pipeline regardless of distance
   Site? _nearestSite;
+  // _isWithinRange tracks whether the nearest site is within the trigger radius
+  // It is used to determine if the "+" button should be enabled
+  bool _isWithinRange = false;
   StreamSubscription<Position>? _positionSubscription;
   Position? _lastAcceptedUserPos;
 
@@ -112,16 +115,30 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final nearby = _getClosestSite(userPos, _sites);
-      print("home_screen: userPos: $userPos, nearby: $nearby");
+      print(
+        "home_screen: userPos: $userPos, nearby: ${nearby.site?.id}, withinRange: ${nearby.isWithinRange}",
+      );
       setState(() {
         _userPos = userPos;
-        _nearestSite = nearby;
+        _nearestSite = nearby.site;
+        _isWithinRange = nearby.isWithinRange;
         _lastAcceptedUserPos = userPos;
       });
     });
   }
 
-  Site? _getClosestSite(Position user, List<Site> sites) {
+  ({Site? site, bool isWithinRange}) _getClosestSite(
+    Position user,
+    List<Site> sites,
+  ) {
+    if (sites.isEmpty) {
+      return (site: null, isWithinRange: false);
+    }
+
+    Site? nearestSite;
+    double nearestDistance = double.infinity;
+    bool isWithinRange = false;
+
     for (final site in sites) {
       final d = GpsService.distanceInMeters(
         user.latitude,
@@ -129,9 +146,20 @@ class _HomeScreenState extends State<HomeScreen> {
         site.lat,
         site.lng,
       );
-      if (d < triggerRadius) return site;
+
+      // Track the nearest site regardless of distance
+      if (d < nearestDistance) {
+        nearestDistance = d;
+        nearestSite = site;
+      }
+
+      // Check if any site is within trigger radius
+      if (d < triggerRadius) {
+        isWithinRange = true;
+      }
     }
-    return null;
+
+    return (site: nearestSite, isWithinRange: isWithinRange);
   }
 
   @override
@@ -207,18 +235,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Padding(
                   padding: EdgeInsets.only(bottom: 32),
                   child: PlusButton(
-                    enabled: _nearestSite != null,
+                    enabled: _isWithinRange,
                     onPressed: () {
-                      if (_nearestSite != null) {
-                        _launchPipeline(
-                          context,
-                          getUserId(widget.name, widget.email, widget.org),
-                          _nearestSite!,
-                          widget.name,
-                          widget.email,
-                          widget.org,
-                        );
-                      }
+                      _launchPipeline(
+                        context,
+                        getUserId(widget.name, widget.email, widget.org),
+                        _nearestSite!,
+                        widget.name,
+                        widget.email,
+                        widget.org,
+                      );
                     },
                   ),
                 ),
@@ -240,6 +266,7 @@ void _launchPipeline(
   String email,
   String org,
 ) {
+  print("home_screen: launching pipeline for site: ${site.id}");
   Navigator.of(context).push(
     MaterialPageRoute(
       builder:
