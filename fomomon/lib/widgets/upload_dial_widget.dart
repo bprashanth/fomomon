@@ -44,6 +44,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget> {
         },
       );
     } catch (e) {
+      print("upload_dial_widget: error: $e");
       setState(() {
         hasError = true;
       });

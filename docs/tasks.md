@@ -52,6 +52,14 @@ W/LegacyMessageQueue(18205):    at java.util.concurrent.ThreadPoolExecutor$Worke
 W/LegacyMessageQueue(18205):    at java.lang.Thread.run(Thread.java:1119)
 ```
 
+2. LocalSessionStorage should be mindful of orgnames 
+	- this is required because we currently assume only 1 org uses 1
+	  phone, so if the phone's user switches orgs the sites.json for
+the second org won't contain the location of the recorded data 
+	- the real fix here is to namespace sessions with the org on
+	  local phone disk 
+
+
 ### Tech Debt
 
 1. Refactor routes into named routes, ideally we would have centralized routing and invoke the pipeline like so
