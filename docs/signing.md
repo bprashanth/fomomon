@@ -27,7 +27,7 @@ We need to add a few query params
 ```
 https://fomomon.s3.ap-south-1.amazonaws.com/t4gc/file.jpg?
 X-Amz-Algorithm=AWS4-HMAC-SHA256&
-X-Amz-Credential=ASIAQLSIVNNSD3OCMI4D/20250730/ap-south-1/s3/aws4_request&
+X-Amz-Credential=AS<somekey>/20250730/ap-south-1/s3/aws4_request&
 X-Amz-Date=20250730T150000Z&
 X-Amz-Expires=900&
 X-Amz-SignedHeaders=host&
@@ -37,7 +37,7 @@ Turn this into the canonical request, hash it and sign it using the "secret key"
 ```
 https://fomomon.s3.ap-south-1.amazonaws.com/t4gc/file.jpg?
 X-Amz-Algorithm=AWS4-HMAC-SHA256&
-X-Amz-Credential=ASIAQLSIVNNSD3OCMI4D/20250730/ap-south-1/s3/aws4_request&
+X-Amz-Credential=AS<somekey>/20250730/ap-south-1/s3/aws4_request&
 X-Amz-Date=20250730T150000Z&
 X-Amz-Expires=900&
 X-Amz-SignedHeaders=host&
