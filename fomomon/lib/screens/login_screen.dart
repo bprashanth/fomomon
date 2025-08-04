@@ -4,6 +4,7 @@ import '../screens/site_prefetch_screen.dart';
 import '../services/auth_service.dart';
 import '../models/login_error.dart';
 import '../exceptions/auth_exceptions.dart';
+import '../widgets/privacy_policy_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -278,6 +279,20 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ],
+
+                        // Privacy Policy Link
+                        const SizedBox(height: 32),
+                        GestureDetector(
+                          onTap: () => showPrivacyPolicy(context),
+                          child: const Text(
+                            'Privacy Policy',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
 
                         const SizedBox(height: 100), // pushes bottom space
                       ],

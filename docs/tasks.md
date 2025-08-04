@@ -33,7 +33,7 @@ root assets only, not `fomomon/*` wildcard. Needs some thought.
 
 12. Timestamps: we use timestamps in file names to make them unique. Unfortunately this can backfire with clock skew on a phone. 
 
-### Exceptions and delays 
+### High priority: Exceptions and observability 
 
 1. There is some weird camera GC issue that happens when we cycle the pipeline and return to the home screen, logs show  - this is leading to delay in home screen loading 
 ```
@@ -59,6 +59,8 @@ the second org won't contain the location of the recorded data
 	- the real fix here is to namespace sessions with the org on
 	  local phone disk 
 
+
+3. Logging x observability through firebase free tier 
 
 ### Tech Debt
 
