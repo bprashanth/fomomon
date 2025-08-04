@@ -69,7 +69,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget> {
                 width: 80,
                 height: 80,
                 child: CircularProgressIndicator(
-                  value: total == 0 ? 1.0 : uploaded / total,
+                  value: total == 0 ? 0.0 : uploaded / total,
                   strokeWidth: 6,
                   backgroundColor: Colors.grey.withOpacity(0.3),
                   valueColor: const AlwaysStoppedAnimation<Color>(
