@@ -1,5 +1,19 @@
 # Release Channels & Build Variants
 
+Tldr
+1. Bump up the version in `pubspec.yaml` (see [this doc](app_store#app_versions)).
+
+2. If you're uploading the app to anywhere BUT the official T4GC play store account ("internal testing track")
+```
+$ flutter build appbundle --flavor dev 
+```
+
+3. If you're building for a release  (closed, open testing + release tracks) 
+```
+$ flutter build appbundle --flavor {alpha, beta, release}
+```
+
+
 ## Overview
 
 This project uses **build variants** to manage different release channels from a single codebase. Each variant maps to a specific Google Play Store track and serves different testing/production purposes.
@@ -14,6 +28,12 @@ This project uses **build variants** to manage different release channels from a
 - **Purpose**: Personal development and testing
 - **Play Store Track**: Internal Testing (Personal Account)
 - **Target Users**: Developer only
+
+Release 
+```console 
+$ flutter build appbundle --flavor dev
+```
+and upload `build/app/outputs/bundle/release/app-dev-release.aab`
 
 ### Alpha Variant (Closed Testing)
 
