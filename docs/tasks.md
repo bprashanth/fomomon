@@ -33,6 +33,8 @@ root assets only, not `fomomon/*` wildcard. Needs some thought.
 
 12. Timestamps: we use timestamps in file names to make them unique. Unfortunately this can backfire with clock skew on a phone. 
 
+13. Crash reporting/analytics 
+
 ### High priority: Exceptions and observability 
 
 1. There is some weird camera GC issue that happens when we cycle the pipeline and return to the home screen, logs show  - this is leading to delay in home screen loading 
