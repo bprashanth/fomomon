@@ -60,7 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // A note on trigger radius:
   // - Typically, it's 3-5 meters with LocationAccuracy.high
   // - Indoor due to GPS signal attenuation, it's more like 5-10m
-  final double triggerRadius = 500.0;
+  // TODO(prashanth@): make this 500 in test mode?
+  final double triggerRadius = 50.0;
 
   @override
   void initState() {
@@ -116,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final nearby = _getClosestSite(userPos, _sites);
       print(
-        "home_screen: userPos: $userPos, nearby: ${nearby.site?.id}, withinRange: ${nearby.isWithinRange}",
+        "[home_screen] userPos: $userPos, nearby: ${nearby.site?.id}, withinRange: ${nearby.isWithinRange} portraitPath: ${nearby.site?.localPortraitPath}, landscapePath: ${nearby.site?.localLandscapePath}",
       );
       setState(() {
         _userPos = userPos;

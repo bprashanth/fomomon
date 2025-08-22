@@ -53,7 +53,7 @@ class UploadService {
     for (final session in unuploaded) {
       try {
         await _uploadSession(session, sites);
-        // await LocalSessionStorage.markSessionUploaded(session.sessionId);
+        await LocalSessionStorage.markUploaded(session.sessionId);
         onProgress?.call();
       } catch (e) {
         final errorMessage =

@@ -15,6 +15,13 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 class SiteService {
+  static Future<Directory> _getCacheDir() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final cacheDir = Directory('${dir.path}/cache');
+    if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
+    return cacheDir;
+  }
+
   static Future<List<Site>> fetchSitesAndPrefetchImages({
     bool async = false,
   }) async {
@@ -113,9 +120,12 @@ class SiteService {
         );
 
         print(
-          "site_service: Cached images for site ${site.id}, portrait: ${site.localPortraitPath}, landscape: ${site.localLandscapePath}",
+          "[site_service]: Cached images for site ${site.id}, portrait: ${site.localPortraitPath}, landscape: ${site.localLandscapePath}",
         );
       }
+
+      // Update the cached sites.json with local paths
+      await _updateCachedSitesWithLocalPaths(sites, data['bucket_root']);
 
       return sites;
     } catch (e) {
@@ -195,22 +205,28 @@ class SiteService {
         final landscapeFileName = getFileName(site.referenceLandscape);
         final portraitFileName = getFileName(site.referencePortrait);
 
-        // Prefetch both images in parallel
-        await Future.wait([
-          _ensureCachedImage(
-            remoteUrl: landscapeUrl,
-            remoteFileName: landscapeFileName,
-            siteId: site.id,
-          ),
-          _ensureCachedImage(
-            remoteUrl: portraitUrl,
-            remoteFileName: portraitFileName,
-            siteId: site.id,
-          ),
-        ]);
+        // Prefetch both images and set local paths
+        final landscapePath = await _ensureCachedImage(
+          remoteUrl: landscapeUrl,
+          remoteFileName: landscapeFileName,
+          siteId: site.id,
+        );
+        final portraitPath = await _ensureCachedImage(
+          remoteUrl: portraitUrl,
+          remoteFileName: portraitFileName,
+          siteId: site.id,
+        );
+
+        // Set the local paths on the site object
+        site.localLandscapePath = landscapePath;
+        site.localPortraitPath = portraitPath;
 
         print("Background prefetch: Cached images for site ${site.id}");
       }
+
+      // Update the cached sites.json with local paths
+      await _updateCachedSitesWithLocalPaths(sites, data['bucket_root']);
+      print("Background prefetch: Updated cache with local paths");
 
       print("Background prefetch: Completed for all sites");
     } catch (e) {
@@ -257,11 +273,8 @@ class SiteService {
 
   static Future<void> _cacheSitesJson(String jsonStr) async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final cacheDir = Directory('${dir.path}/cache');
-      if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
-
-      final cacheFile = File('${cacheDir.path}/sites.json');
+      final dir = await _getCacheDir();
+      final cacheFile = File('${dir.path}/sites.json');
       await cacheFile.writeAsString(jsonStr);
       print("Cached sites.json successfully");
     } catch (e) {
@@ -269,10 +282,33 @@ class SiteService {
     }
   }
 
+  static Future<void> _updateCachedSitesWithLocalPaths(
+    List<Site> sites,
+    String bucketRoot,
+  ) async {
+    try {
+      final dir = await _getCacheDir();
+      final cacheFile = File('${dir.path}/sites.json');
+
+      // Create the updated sites.json structure
+      final updatedData = {
+        'bucket_root': bucketRoot,
+        'sites': sites.map((site) => site.toJson()).toList(),
+      };
+
+      final updatedJsonStr = jsonEncode(updatedData);
+      await cacheFile.writeAsString(updatedJsonStr);
+      print("Updated cached sites.json with local paths successfully");
+    } catch (e) {
+      print("Failed to update cached sites.json with local paths: $e");
+      // Continue with existing behavior - log error but don't fail
+    }
+  }
+
   static Future<List<Site>> _loadCachedSites() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final cacheFile = File('${dir.path}/cache/sites.json');
+      final dir = await _getCacheDir();
+      final cacheFile = File('${dir.path}/sites.json');
 
       if (!await cacheFile.exists()) {
         print("No cached sites.json found");
