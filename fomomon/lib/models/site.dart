@@ -35,6 +35,8 @@ class Site {
       lng: json['location']['lng'],
       referencePortrait: json['reference_portrait'],
       referenceLandscape: json['reference_landscape'],
+      localPortraitPath: json['local_portrait_path'],
+      localLandscapePath: json['local_landscape_path'],
       bucketRoot: bucketRoot,
       surveyQuestions:
           (json['survey'] as List<dynamic>)
@@ -44,4 +46,17 @@ class Site {
   }
 
   // Site does not have a toJson because we never write to it.
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'location': {'lat': lat, 'lng': lng},
+      'reference_portrait': referencePortrait,
+      'reference_landscape': referenceLandscape,
+      'local_portrait_path': localPortraitPath,
+      'local_landscape_path': localLandscapePath,
+      'bucket_root': bucketRoot,
+      'survey': surveyQuestions.map((q) => q.toJson()).toList(),
+    };
+  }
 }

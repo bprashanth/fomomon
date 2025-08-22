@@ -126,48 +126,36 @@ def get_or_create_role(role_name, bucket_root, write_access, identity_pool_id):
     if write_access:
         actions.append("s3:PutObject")
 
-    # Extract org name from bucket_root URL
+    # Extract bucket name from bucket_root URL
     # bucket_root format: "https://fomomon.s3.amazonaws.com/testorg/"
     print(f"Processing bucket_root: {bucket_root}")
 
-    # Extract bucket name and org path from URL
+    # Extract bucket name from URL
     if bucket_root.startswith("https://"):
         # Remove https:// and .s3.amazonaws.com/
         bucket_path = bucket_root.replace(
             "https://", "").replace(".s3.amazonaws.com", "")
         print(f"After removing https:// and .s3.amazonaws.com/: {bucket_path}")
 
-        # Split into bucket name and org path
+        # Get bucket name (everything before the first slash)
         if "/" in bucket_path:
-            bucket_name, org_path = bucket_path.split("/", 1)
-            # Remove trailing slash from org path
-            org_path = org_path.rstrip("/")
-            print(f"Bucket name: {bucket_name}, Org path: {org_path}")
+            bucket_name = bucket_path.split("/", 1)[0]
         else:
             bucket_name = bucket_path
-            org_path = ""
-            print(f"Bucket name only: {bucket_name}, no org path")
+        print(f"Bucket name: {bucket_name}")
     else:
         # Fallback if not a URL format
         bucket_name = bucket_root
-        org_path = ""
         print(f"Using fallback format: {bucket_name}")
 
-    # Build S3 resource ARNs for the org path
-    if org_path:
-        s3_resources = [
-            f"arn:aws:s3:::{bucket_name}/{org_path}/*",
-            f"arn:aws:s3:::{bucket_name}/{org_path}",
-            f"arn:aws:s3:::{bucket_name}/{org_path}/"
-        ]
-        print(f"Org-specific S3 resources: {s3_resources}")
-    else:
-        s3_resources = [
-            f"arn:aws:s3:::{bucket_name}/*",
-            f"arn:aws:s3:::{bucket_name}",
-            f"arn:aws:s3:::{bucket_name}/"
-        ]
-        print(f"Bucket-wide S3 resources: {s3_resources}")
+    # Build S3 resource ARNs for the entire bucket
+    # This allows access to all organization subdirectories
+    s3_resources = [
+        f"arn:aws:s3:::{bucket_name}/*",
+        f"arn:aws:s3:::{bucket_name}",
+        f"arn:aws:s3:::{bucket_name}/"
+    ]
+    print(f"Bucket-wide S3 resources: {s3_resources}")
 
     policy_doc = {
         "Version": "2012-10-17",

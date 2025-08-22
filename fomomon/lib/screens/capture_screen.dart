@@ -186,6 +186,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
             ? widget.site.localPortraitPath
             : widget.site.localLandscapePath;
 
+    print(
+      "[CaptureScreen] ghostPath: $ghostPath, localPortraitPath: ${widget.site.localPortraitPath}, localLandscapePath: ${widget.site.localLandscapePath}",
+    );
+
     // Camera stacking order:
     // - CameraPreview
     // - GhostOverlay
