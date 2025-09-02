@@ -62,7 +62,9 @@ the second org won't contain the location of the recorded data
 	  local phone disk 
 
 
-3. Logging x observability through firebase free tier 
+3. Local sites aren't automatically integrated into `sites.json`. 
+
+4. Logging x observability through firebase free tier 
 
 ### Tech Debt
 

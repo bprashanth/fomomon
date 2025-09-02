@@ -44,6 +44,9 @@ class GpsService {
         ),
       );
     }
+    // On Android, all top options for accuracy are the same, so we can use
+    // high, i.e. best, high and bestForNavigation all map to
+    // PRIORITY_HIGH_ACCURACY.
     return Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
@@ -56,5 +59,28 @@ class GpsService {
     double lon2,
   ) {
     return Geolocator.distanceBetween(lat1, lon1, lat2, lon2);
+  }
+
+  // Get current position once (used for creating new local sites)
+  static Future<Position> getCurrentPosition() async {
+    if (AppConfig.isTestMode &&
+        AppConfig.mockLat != null &&
+        AppConfig.mockLng != null) {
+      // Return mock position for testing
+      return Position(
+        latitude: AppConfig.mockLat!,
+        longitude: AppConfig.mockLng!,
+        accuracy: 10.0,
+        altitude: 0.0,
+        altitudeAccuracy: 10.0,
+        heading: 0.0,
+        headingAccuracy: 10.0,
+        speed: 0.0,
+        speedAccuracy: 10.0,
+        timestamp: DateTime.now(),
+      );
+    }
+
+    return await Geolocator.getCurrentPosition();
   }
 }

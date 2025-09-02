@@ -16,6 +16,7 @@ import '../screens/capture_screen.dart';
 import 'dart:async';
 import 'dart:ui';
 import '../widgets/upload_dial_widget.dart';
+import '../screens/site_selection_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -238,14 +239,28 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: PlusButton(
                     enabled: _isWithinRange,
                     onPressed: () {
-                      _launchPipeline(
-                        context,
-                        getUserId(widget.name, widget.email, widget.org),
-                        _nearestSite!,
-                        widget.name,
-                        widget.email,
-                        widget.org,
-                      );
+                      if (_isWithinRange && _nearestSite != null) {
+                        // Launch pipeline directly with nearest site
+                        _launchPipeline(
+                          context,
+                          getUserId(widget.name, widget.email, widget.org),
+                          _nearestSite!,
+                          widget.name,
+                          widget.email,
+                          widget.org,
+                        );
+                      } else {
+                        // Launch site selection screen
+                        _launchSiteSelection(
+                          context,
+                          getUserId(widget.name, widget.email, widget.org),
+                          _sites,
+                          _nearestSite,
+                          widget.name,
+                          widget.email,
+                          widget.org,
+                        );
+                      }
                     },
                   ),
                 ),
@@ -274,6 +289,32 @@ void _launchPipeline(
           (_) => CaptureScreen(
             captureMode: 'portrait',
             site: site,
+            userId: userId,
+            name: name,
+            email: email,
+            org: org,
+          ),
+    ),
+  );
+}
+
+// New utility function to launch the site selection screen
+void _launchSiteSelection(
+  BuildContext context,
+  String userId,
+  List<Site> sites,
+  Site? nearestSite,
+  String name,
+  String email,
+  String org,
+) {
+  print("home_screen: launching site selection screen");
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder:
+          (context) => SiteSelectionScreen(
+            sites: sites,
+            nearestSite: nearestSite,
             userId: userId,
             name: name,
             email: email,
