@@ -15,7 +15,6 @@ class Site {
   String? localLandscapePath;
   final String bucketRoot;
   final List<SurveyQuestion> surveyQuestions;
-  final bool isLocalSite;
 
   Site({
     required this.id,
@@ -27,7 +26,6 @@ class Site {
     this.localLandscapePath,
     required this.bucketRoot,
     required this.surveyQuestions,
-    this.isLocalSite = false,
   });
 
   factory Site.fromJson(Map<String, dynamic> json, String bucketRoot) {
@@ -44,27 +42,6 @@ class Site {
           (json['survey'] as List<dynamic>)
               .map((q) => SurveyQuestion.fromJson(q))
               .toList(),
-      isLocalSite: json['is_local_site'] ?? false,
-    );
-  }
-
-  // Factory method for creating local sites
-  factory Site.createLocalSite({
-    required String id,
-    required double lat,
-    required double lng,
-    required String bucketRoot,
-    required List<SurveyQuestion> surveyQuestions,
-  }) {
-    return Site(
-      id: id,
-      lat: lat,
-      lng: lng,
-      referencePortrait: '', // Empty for local sites
-      referenceLandscape: '', // Empty for local sites
-      bucketRoot: bucketRoot,
-      surveyQuestions: surveyQuestions,
-      isLocalSite: true,
     );
   }
 
@@ -80,7 +57,6 @@ class Site {
       'local_landscape_path': localLandscapePath,
       'bucket_root': bucketRoot,
       'survey': surveyQuestions.map((q) => q.toJson()).toList(),
-      'is_local_site': isLocalSite,
     };
   }
 }

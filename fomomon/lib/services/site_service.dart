@@ -13,6 +13,7 @@ import '../models/site.dart';
 import '../config/app_config.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import '../services/local_site_storage.dart';
 
 class SiteService {
   static Future<Directory> _getCacheDir() async {
@@ -32,15 +33,17 @@ class SiteService {
     if (async) {
       try {
         final cachedSites = await _loadCachedSites();
+        final localSites = await LocalSiteStorage.loadLocalSites();
+        final mergedSites = _mergeSites(cachedSites, localSites);
         if (cachedSites.isNotEmpty) {
           print(
-            "Async mode: Returning ${cachedSites.length} cached sites immediately",
+            "Async mode: Returning ${mergedSites.length} sites (${cachedSites.length} remote + ${localSites.length} local) immediately",
           );
 
           // Start background fetch to update cache
           _fetchAndCacheSitesInBackground(path);
 
-          return cachedSites;
+          return mergedSites;
         }
       } catch (e) {
         print("Async mode: Failed to load cached sites: $e");
@@ -48,7 +51,9 @@ class SiteService {
     }
 
     // Synchronous fetch (either async=false or no cached data available)
-    return await _fetchSitesSynchronously(path);
+    final remoteSites = await _fetchSitesSynchronously(path);
+    final localSites = await LocalSiteStorage.loadLocalSites();
+    return _mergeSites(remoteSites, localSites);
   }
 
   static Future<List<Site>> _fetchSitesSynchronously(String path) async {
@@ -329,5 +334,30 @@ class SiteService {
       print("Error loading cached sites: $e");
       return [];
     }
+  }
+
+  // Helper method to merge remote and local sites, giving precedence to remote sites
+  static List<Site> _mergeSites(List<Site> remoteSites, List<Site> localSites) {
+    final mergedSites = <Site>[];
+    final seenIds = <String>{};
+
+    // Add remote sites first (they get precedence)
+    for (final site in remoteSites) {
+      mergedSites.add(site);
+      seenIds.add(site.id);
+    }
+
+    // Add local sites that don't conflict with remote sites
+    for (final site in localSites) {
+      if (!seenIds.contains(site.id)) {
+        mergedSites.add(site);
+        seenIds.add(site.id);
+      }
+    }
+
+    print(
+      "Merged sites: ${remoteSites.length} remote + ${localSites.length} local = ${mergedSites.length} total",
+    );
+    return mergedSites;
   }
 }
