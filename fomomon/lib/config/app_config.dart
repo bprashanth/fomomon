@@ -17,6 +17,10 @@ class AppConfig {
   static const String guestEmail = 'srini@ncf-india.org';
   static const String guestOrg = 'ncf';
 
+  // Default bucket for guest mode when no sites are available
+  static const String guestBucket =
+      'https://fomomonguest.s3.ap-south-1.amazonaws.com/';
+
   // Organization data mapping org codes to default values
   static const Map<String, Map<String, String>> organizationData = {
     't4gc': {'email': 'prashanth@tech4goodcommunity.com', 'name': 'Prashanth'},

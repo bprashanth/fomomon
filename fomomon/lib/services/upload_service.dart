@@ -85,8 +85,12 @@ class UploadService {
     }
 
     print(
-      "upload_service: uploading session: ${session.sessionId} with site ${site.id}",
+      "upload_service: found site: ${site.id}, bucketRoot: ${site.bucketRoot}",
     );
+
+    // Resolve bucket root with fallback logic
+    final resolvedBucketRoot = _resolveBucketRoot(site.bucketRoot, sites);
+
     final timestampStr = _sanitizeTimestamp(session.timestamp);
     final portraitRemotePath =
         '${site.id}/${session.userId}_${timestampStr}_portrait.jpg';
@@ -95,13 +99,13 @@ class UploadService {
 
     final portraitUrl = await uploadFile(
       session.portraitImagePath,
-      site.bucketRoot,
+      resolvedBucketRoot,
       portraitRemotePath,
     );
 
     final landscapeUrl = await uploadFile(
       session.landscapeImagePath,
-      site.bucketRoot,
+      resolvedBucketRoot,
       landscapeRemotePath,
     );
 
@@ -111,7 +115,7 @@ class UploadService {
     final sessionJsonPath = 'sessions/${session.userId}_${timestampStr}.json';
     final sessionUrl = await uploadJson(
       session.toJson(),
-      site.bucketRoot,
+      resolvedBucketRoot,
       sessionJsonPath,
     );
     print(
@@ -125,7 +129,11 @@ class UploadService {
     String bucketRoot,
     String remotePath,
   ) async {
+    print(
+      "upload_service: uploading file to bucketRoot: $bucketRoot, remotePath: $remotePath",
+    );
     final fullUrl = _joinUrls(bucketRoot, remotePath);
+    print("upload_service: constructed fullUrl: $fullUrl");
 
     if (authService.isUserLoggedIn()) {
       return await _uploadFileAuth(localPath, fullUrl);
@@ -259,6 +267,8 @@ class UploadService {
     if (response.statusCode == 200) {
       return fullUrl;
     } else {
+      print("upload_service: Upload failed with status ${response.statusCode}");
+      print("upload_service: Response body: ${response.body}");
       throw Exception('File upload failed: ${response.statusCode}');
     }
   }
@@ -332,5 +342,37 @@ class UploadService {
 
   String _sanitizeTimestamp(DateTime timestamp) {
     return timestamp.toIso8601String().replaceAll(':', '_');
+  }
+
+  /// Resolve bucket root with fallback logic
+  /// 1. If bucketRoot is valid (has host), use it
+  /// 2. If no host detected, use first available site's bucket root
+  /// 3. If no sites available, use hardcoded guest bucket
+  String _resolveBucketRoot(String bucketRoot, List<Site> sites) {
+    // Check if bucketRoot has a host (is a valid URL)
+    try {
+      final uri = Uri.parse(bucketRoot);
+      if (uri.host.isNotEmpty) {
+        print("upload_service: Using provided bucket root: $bucketRoot");
+        return bucketRoot;
+      }
+    } catch (e) {
+      print("upload_service: Invalid bucket root format: $bucketRoot");
+    }
+
+    // Fallback 1: Try to get bucket root from first available site
+    if (sites.isNotEmpty) {
+      final firstSite = sites.first;
+      if (firstSite.bucketRoot.isNotEmpty) {
+        print(
+          "upload_service: Using first site's bucket root: ${firstSite.bucketRoot}",
+        );
+        return firstSite.bucketRoot;
+      }
+    }
+
+    // Fallback 2: Use hardcoded guest bucket
+    print("upload_service: No valid bucket root, using guest bucket fallback");
+    return AppConfig.guestBucket;
   }
 }
