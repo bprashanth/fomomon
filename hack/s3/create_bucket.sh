@@ -112,7 +112,20 @@ if [[ -n "$PUBLIC_WRITE" ]]; then
           }]
         }"
         
-        echo "Public write access enabled for bucket $BUCKET_NAME"
+        # Add CORS configuration for public write buckets
+        aws s3api put-bucket-cors --bucket "$BUCKET_NAME" --cors-configuration '{
+          "CORSRules": [
+            {
+              "AllowedHeaders": ["*"],
+              "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+              "AllowedOrigins": ["*"],
+              "ExposeHeaders": ["ETag"],
+              "MaxAgeSeconds": 3000
+            }
+          ]
+        }'
+        
+        echo "Public write access and CORS configuration enabled for bucket $BUCKET_NAME"
         
     elif [[ "$PUBLIC_WRITE" == "false" ]]; then
         echo "Disabling public write access for bucket: $BUCKET_NAME"

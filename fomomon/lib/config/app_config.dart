@@ -1,6 +1,7 @@
 class AppConfig {
   // The "local" and "mock" variables used here are only used in testing mode.
   static bool isTestMode = false;
+  static bool isGuestMode = false;
   // Path to a local directory, trailing slash is optional
   static String? _localRoot;
   static double? mockLat;
@@ -11,11 +12,16 @@ class AppConfig {
   static String? _org;
   static String? _region;
 
+  // Guest mode variables
+  static const String guestUser = 'Srini';
+  static const String guestEmail = 'srini@ncf-india.org';
+  static const String guestOrg = 'ncf';
+
   // Organization data mapping org codes to default values
   static const Map<String, Map<String, String>> organizationData = {
     't4gc': {'email': 'prashanth@tech4goodcommunity.com', 'name': 'Prashanth'},
     'testorg': {'email': 'hari@foundation', 'name': 'asimov'},
-    'ncf': {'email': 'demo@example.com', 'name': 'Srini'},
+    'ncf': {'email': 'srini@ncf-india.org', 'name': 'Srini'},
   };
 
   // Configure is called only once, at login, with the user info fields.
@@ -27,6 +33,19 @@ class AppConfig {
     _bucketName = bucketName;
     _org = org;
     _region = region;
+  }
+
+  // Configure guest mode
+  static void configureGuestMode() {
+    isGuestMode = true;
+    _bucketName = 'fomomon';
+    _org = guestOrg;
+    _region = 'ap-south-1';
+  }
+
+  // Reset guest mode
+  static void resetGuestMode() {
+    isGuestMode = false;
   }
 
   static void setLocalRoot(String path) {

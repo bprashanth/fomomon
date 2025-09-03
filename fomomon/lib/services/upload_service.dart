@@ -245,6 +245,7 @@ class UploadService {
 
   // Internal helper for no-auth file uploads
   Future<String> _uploadFileNoAuth(String localPath, String fullUrl) async {
+    print("upload_service: uploading NOAUTH FILE to $fullUrl");
     final file = File(localPath);
     final bytes = await file.readAsBytes();
     final contentType = _getContentType(localPath);
@@ -266,6 +267,7 @@ class UploadService {
     Map<String, dynamic> jsonData,
     String fullUrl,
   ) async {
+    print("upload_service: uploading NOAUTH JSON to $fullUrl");
     final jsonString = jsonEncode(jsonData);
     final response = await http.put(
       Uri.parse(fullUrl),

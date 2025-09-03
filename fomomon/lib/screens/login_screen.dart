@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../screens/site_prefetch_screen.dart';
+import '../screens/home_screen.dart';
 import '../services/auth_service.dart';
 import '../models/login_error.dart';
 import '../exceptions/auth_exceptions.dart';
@@ -182,6 +183,30 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _handleGuestLogin() async {
+    print('login_screen: Handling guest login');
+
+    setState(() {
+      _isLoadingLogin = true;
+      _loginError = null;
+    });
+
+    // Configure guest mode
+    AppConfig.configureGuestMode();
+
+    // Navigate directly to home screen, skipping site prefetch
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder:
+            (_) => HomeScreen(
+              name: AppConfig.guestUser,
+              email: AppConfig.guestEmail,
+              org: AppConfig.guestOrg,
+            ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -266,6 +291,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   )
                                   : const Text('Continue'),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // Guest login button
+                        OutlinedButton(
+                          onPressed:
+                              (_isLoadingLogin || _isLoadingConfig)
+                                  ? null
+                                  : _handleGuestLogin,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white70),
+                          ),
+                          child: const Text('Continue as Guest'),
                         ),
 
                         // Config loading indicator
