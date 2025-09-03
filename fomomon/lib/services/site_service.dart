@@ -11,9 +11,11 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/site.dart';
 import '../config/app_config.dart';
+import '../data/guest_sites.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../services/local_site_storage.dart';
+import 'package:flutter/services.dart';
 
 class SiteService {
   static Future<Directory> _getCacheDir() async {
@@ -26,6 +28,14 @@ class SiteService {
   static Future<List<Site>> fetchSitesAndPrefetchImages({
     bool async = false,
   }) async {
+    // Check if we're in guest mode
+    if (AppConfig.isGuestMode) {
+      print("Guest mode: Loading guest sites");
+      final guestSites = await _loadGuestSites();
+      final localSites = await LocalSiteStorage.loadLocalSites();
+      return _mergeSites(guestSites, localSites);
+    }
+
     final root = AppConfig.getResolvedBucketRoot();
     final path = "$root/sites.json";
 
@@ -54,6 +64,80 @@ class SiteService {
     final remoteSites = await _fetchSitesSynchronously(path);
     final localSites = await LocalSiteStorage.loadLocalSites();
     return _mergeSites(remoteSites, localSites);
+  }
+
+  static Future<List<Site>> _loadGuestSites() async {
+    try {
+      final data = jsonDecode(GuestSites.guestSitesJson);
+      print("Loaded guest sites: $data");
+      final List<Site> sites =
+          (data['sites'] as List)
+              .map((siteJson) => Site.fromJson(siteJson, data['bucket_root']))
+              .toList();
+
+      if (sites.isEmpty) {
+        print('No guest sites found');
+        return [];
+      }
+
+      print(
+        "Copying guest site assets to local storage for ${sites.length} sites",
+      );
+
+      // Copy asset images to local storage and update local paths
+      for (final site in sites) {
+        if (site.localPortraitPath != null &&
+            site.localPortraitPath!.startsWith('assets/')) {
+          site.localPortraitPath = await _copyAssetToLocalStorage(
+            site.localPortraitPath!,
+            site.id,
+            'portrait',
+          );
+        }
+        if (site.localLandscapePath != null &&
+            site.localLandscapePath!.startsWith('assets/')) {
+          site.localLandscapePath = await _copyAssetToLocalStorage(
+            site.localLandscapePath!,
+            site.id,
+            'landscape',
+          );
+        }
+      }
+
+      print("Loaded ${sites.length} guest sites with local paths");
+      return sites;
+    } catch (e) {
+      print("Error loading guest sites: $e");
+      return [];
+    }
+  }
+
+  static Future<String> _copyAssetToLocalStorage(
+    String assetPath,
+    String siteId,
+    String imageType,
+  ) async {
+    try {
+      final dir = await _getCacheDir();
+      final guestDir = Directory('${dir.path}/guest_sites');
+      if (!await guestDir.exists()) {
+        await guestDir.create(recursive: true);
+      }
+
+      final filename = '${siteId}_${imageType}.jpg';
+      final localPath = '${guestDir.path}/$filename';
+
+      // Load asset as bytes and write to local file
+      final byteData = await rootBundle.load(assetPath);
+      final file = File(localPath);
+      await file.writeAsBytes(byteData.buffer.asUint8List());
+
+      print("Copied asset $assetPath to $localPath");
+      return localPath;
+    } catch (e) {
+      print("Error copying asset $assetPath: $e");
+      return assetPath; // Return original path if copy fails
+    }
   }
 
   static Future<List<Site>> _fetchSitesSynchronously(String path) async {
