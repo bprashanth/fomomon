@@ -43,10 +43,13 @@
 
 ## Data Structures and storages 
 
-There are 3 main json files: 
+There are 4 main json files: 
 1. sites.json
-2. db.json 
+2. sessions.json 
 3. users.json
+4. db.json
+
+The first three are stored locally. The last one, `db.json` is created via a batch script directly in the backend. 
 
 sites.json is where we add new sites. 
 ```
@@ -64,7 +67,7 @@ sites.json is where we add new sites.
   ]
 }
 ```
-db.json is where we add uploaded images. 
+sessions.json is where we add uploaded images. 
 
 ```
 {
@@ -85,7 +88,7 @@ db.json is where we add uploaded images.
   ]
 }
 ```
-and users.json where we record users / org
+users.json where we record users / org
 ```
 {
   "bucket_root": "https://your-bucket.s3.amazonaws.com/",
@@ -103,23 +106,23 @@ and users.json where we record users / org
   ]
 }
 ```
-
-Stored in this manner remotely
+And db.json is the combined sessions.json at the time when the batch script is run (see [docs/db_sessions.md](./docs/db_sessions.md)). 
 ```
-s3://bucket/org/
-├── sites.json
-├── users.json
-├── site_001/
-│   ├── {userId}_{timestamp}_portrait.jpg
-│   └── ...
-├── db/
-│   └── {timestamp}.json
-├── sessions/
-│   ├── {userId}_{timestamp}.json
+[
+  {
+    "sessionId": "srini_2020-05-01T07:01:30",
+    "siteId": "2019_SM_R1",
+    "latitude": 10.30991,
+    "longitude": 76.83501,
+    "portraitImagePath": "",
+    "landscapeImagePath": "",
+    "portraitImageUrl": "https://forest
+...
 ```
 * There is only one sites file per all users in an org, and it captures all sites info. 
-* Each db file is a batch of session data (though it could be the output of a single pipeline as well) captured on one phone, covering one or more sites, and one single upload action. 
-* These db files are stored locally as 
+* There is only one db file per all sessions in an org, and it captures all sessions previously uploaded. 
+* Each session file is a batch of images/surveys from 1 pipeline captured on one phone, covering one site, and one single upload action. 
+* These files are stored locally as 
 ```
 documents/
 ├── images/
@@ -133,12 +136,25 @@ documents/
 │   │   ├── <original_file_name>.jpg
 │   │   └── <original_file_name>.jpg
 ```
+* And stored remotely like so: 
+```
+s3://bucket/org/
+├── sites.json
+├── users.json
+├── site_001/
+│   ├── {userId}_{timestamp}_portrait.jpg
+│   └── ...
+├── db.json
+├── sessions/
+│   ├── {userId}_{timestamp}.json
+```
 
 Where `documents` is what's returned by `getApplicationDocumentsDirectory`.
+The `db.json` file is _not_ stored locally. 
 
 ### Models 
 
-The main model for `db.json` is a data packet for the `CapturedSession`
+The main model for `session.json` is a data packet for the `CapturedSession`
 
 ```json
 class CapturedSession {
@@ -152,7 +168,7 @@ class CapturedSession {
 }
 ```
 
-And for `sites.json` is't a `Site`
+And for `sites.json` it's a `Site`
 ```json
 class Site {
 	final String id;
