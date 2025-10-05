@@ -79,9 +79,10 @@ class UploadService {
     try {
       site = sites.firstWhere((s) => s.id == session.siteId);
     } catch (e) {
-      throw Exception(
-        "Site with ID '${session.siteId}' not found in sites list. Available sites: ${sites.map((s) => s.id).join(', ')}",
+      print(
+        "upload_service: Site with ID '${session.siteId}' not found, creating fallback site",
       );
+      site = LocalSessionStorage.createSiteForSession(session, sites.first);
     }
 
     print(
@@ -129,9 +130,12 @@ class UploadService {
     String bucketRoot,
     String remotePath,
   ) async {
-    print(
-      "upload_service: uploading file to bucketRoot: $bucketRoot, remotePath: $remotePath",
-    );
+    if (!_isValidLocalPath(localPath) ||
+        !_isValidPath(bucketRoot) ||
+        !_isValidPath(remotePath)) {
+      return '';
+    }
+
     final fullUrl = _joinUrls(bucketRoot, remotePath);
     print("upload_service: constructed fullUrl: $fullUrl");
 
@@ -344,35 +348,15 @@ class UploadService {
     return timestamp.toIso8601String().replaceAll(':', '_');
   }
 
-  /// Resolve bucket root with fallback logic
-  /// 1. If bucketRoot is valid (has host), use it
-  /// 2. If no host detected, use first available site's bucket root
-  /// 3. If no sites available, use hardcoded guest bucket
-  String _resolveBucketRoot(String bucketRoot, List<Site> sites) {
-    // Check if bucketRoot has a host (is a valid URL)
-    try {
-      final uri = Uri.parse(bucketRoot);
-      if (uri.host.isNotEmpty) {
-        print("upload_service: Using provided bucket root: $bucketRoot");
-        return bucketRoot;
-      }
-    } catch (e) {
-      print("upload_service: Invalid bucket root format: $bucketRoot");
-    }
+  bool _isValidLocalPath(String localPath) {
+    if (localPath.isEmpty) return false;
+    final file = File(localPath);
+    return file.existsSync();
+  }
 
-    // Fallback 1: Try to get bucket root from first available site
-    if (sites.isNotEmpty) {
-      final firstSite = sites.first;
-      if (firstSite.bucketRoot.isNotEmpty) {
-        print(
-          "upload_service: Using first site's bucket root: ${firstSite.bucketRoot}",
-        );
-        return firstSite.bucketRoot;
-      }
-    }
-
-    // Fallback 2: Use hardcoded guest bucket
-    print("upload_service: No valid bucket root, using guest bucket fallback");
-    return AppConfig.guestBucket;
+  bool _isValidPath(String remotePath) {
+    // TODO(prashanth@): add more validation here. Better garbage character
+    // checking.
+    return remotePath.isNotEmpty && !remotePath.contains('..');
   }
 }

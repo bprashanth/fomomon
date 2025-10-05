@@ -33,6 +33,8 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import '../models/captured_session.dart';
+import '../models/site.dart';
+import '../models/survey_question.dart';
 
 class LocalSessionStorage {
   static Future<Directory> _getSessionDir() async {
@@ -83,5 +85,31 @@ class LocalSessionStorage {
     final data = jsonDecode(jsonStr);
     data['isUploaded'] = true;
     await file.writeAsString(jsonEncode(data));
+  }
+
+  // Creates a Site from a Session. While this is backwards, we use this method
+  // to upload stale sessions from a user's phone after the sites have all
+  // changed. The main point is to not discard the data.
+  static Site createSiteForSession(CapturedSession session, Site fallbackSite) {
+    // Convert session responses to survey questions
+    final surveyQuestions =
+        session.responses
+            .map(
+              (response) => SurveyQuestion(
+                id: response.questionId,
+                // Use questionId as question text as fallback
+                question: response.questionId,
+                type: 'text',
+              ),
+            )
+            .toList();
+
+    return Site.createLocalSite(
+      id: session.siteId,
+      lat: session.latitude,
+      lng: session.longitude,
+      surveyQuestions: surveyQuestions,
+      bucketRoot: fallbackSite.bucketRoot,
+    );
   }
 }

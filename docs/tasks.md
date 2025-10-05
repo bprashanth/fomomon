@@ -35,6 +35,20 @@ root assets only, not `fomomon/*` wildcard. Needs some thought.
 
 13. Crash reporting/analytics 
 
+14. Incorporte cors in the buckets and get a handle on the public read/write nature 
+```
+aws s3api put-bucket-cors --bucket fomomon --cors-configuration '{
+  "CORSRules": [
+    {
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "HEAD"],
+      "AllowedOrigins": ["*"],
+      "ExposeHeaders": []
+    }
+  ]
+}'
+```
+
 ### High priority: Exceptions and observability 
 
 1. There is some weird camera GC issue that happens when we cycle the pipeline and return to the home screen, logs show  - this is leading to delay in home screen loading 

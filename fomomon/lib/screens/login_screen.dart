@@ -34,12 +34,19 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     // Set default org and populate fields
+    // This is just UX sugar to display an example to the user of what values
+    // they should use in the login screen.
     _selectedOrg = 't4gc';
     _updateFieldsFromOrg();
     _fetchConfigInBackground();
   }
 
+  // _updateFieldsFromOrg looks up the onboarded org info from the AppConfig.
+  // This org data map is populated offline when a new org is on-boarded.
+  // Currently it is compiled into the app, which means for every new org, we
+  // need to re-compile the app.
   void _updateFieldsFromOrg() {
+    // TODO(prashanth@): move this to a json file so on-boarding orgs is easy.
     if (_selectedOrg != null &&
         AppConfig.organizationData.containsKey(_selectedOrg)) {
       final orgData = AppConfig.organizationData[_selectedOrg]!;
@@ -53,15 +60,13 @@ class _LoginScreenState extends State<LoginScreen> {
       _loginError = null;
     });
 
+    // Right now we are pre-login, so we only need the location of the
+    // auth_config.json. Once the user has finalized the login details
+    // including org, we can set that in the AppConfig. This happens in
+    // handleSubmit.
     // TODO(prashanth@): Consolidate these AppConfig initializations.
-    //
-    // Initialize AppConfig with the default org for the other services to use
-    // within this background fetcher. It is re-initialized in the handle
-    // submit with the correct org.
     AppConfig.configure(
       bucketName: _appName.toLowerCase(),
-      // org is reset in the handle submit
-      org: _selectedOrg!.toLowerCase(),
       region: 'ap-south-1',
     );
 

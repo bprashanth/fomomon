@@ -28,7 +28,7 @@ class AppConfig {
     'ncf': {'email': 'srini@ncf-india.org', 'name': 'Srini'},
   };
 
-  // Configure is called only once, at login, with the user info fields.
+  // Configure is called at login, with the user info fields.
   static void configure({
     required String bucketName,
     String org = 't4gc',

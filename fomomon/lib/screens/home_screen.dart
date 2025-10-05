@@ -62,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // - Typically, it's 3-5 meters with LocationAccuracy.high
   // - Indoor due to GPS signal attenuation, it's more like 5-10m
   // TODO(prashanth@): make this 500 in test mode?
-  final double triggerRadius = 50.0;
+  final double triggerRadius = 30.0;
 
   @override
   void initState() {
@@ -237,28 +237,48 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Padding(
                   padding: EdgeInsets.only(bottom: 32),
                   child: PlusButton(
-                    enabled: _isWithinRange,
+                    enabled: _userPos != null && _nearestSite != null,
                     onPressed: () {
-                      if (_isWithinRange && _nearestSite != null) {
-                        // Launch pipeline directly with nearest site
-                        _launchPipeline(
-                          context,
-                          getUserId(widget.name, widget.email, widget.org),
-                          _nearestSite!,
-                          widget.name,
-                          widget.email,
-                          widget.org,
-                        );
+                      // These three variables interplay in a slightly
+                      // confusing way. UserPos and nearestSite are used to
+                      // determine whether gps has been acquired - these two
+                      // variables tell us: i know the user's position, and i
+                      // know the nearest site. There will always be a nearest
+                      // site, as long as we have gps signal.
+                      // There will NOT always be a site within range, however.
+                      // The range is defined as a threshold radius. Within
+                      // this range we auto select the nearest site, outside
+                      // this range, we show the site selection screen.
+                      if (_userPos != null && _nearestSite != null) {
+                        if (_isWithinRange) {
+                          // Launch pipeline directly with nearest site
+                          _launchPipeline(
+                            context,
+                            getUserId(widget.name, widget.email, widget.org),
+                            _nearestSite!,
+                            widget.name,
+                            widget.email,
+                            widget.org,
+                          );
+                        } else {
+                          // Launch site selection screen
+                          _launchSiteSelection(
+                            context,
+                            getUserId(widget.name, widget.email, widget.org),
+                            _sites,
+                            _nearestSite,
+                            widget.name,
+                            widget.email,
+                            widget.org,
+                          );
+                        }
                       } else {
-                        // Launch site selection screen
-                        _launchSiteSelection(
-                          context,
-                          getUserId(widget.name, widget.email, widget.org),
-                          _sites,
-                          _nearestSite,
-                          widget.name,
-                          widget.email,
-                          widget.org,
+                        // Show toast when GPS is not ready
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Acquiring GPS, please retry in 2s'),
+                            duration: Duration(seconds: 2),
+                          ),
                         );
                       }
                     },

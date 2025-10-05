@@ -102,6 +102,15 @@ For now, we have chosen 2, mostly because it allows manual configuration of User
 4. Return normal S3 URL 
 ```
 
+### How does the phone app figure out the cognito pools 
+
+Basically the phone app needs to do the equivalent of `aws cognito-idp-list-users` for which it needs a `user-pool-id`. There are 2 ways we can transfer this user pool id
+
+1. Embed it in the app. This means if the user pool changes, the app needs an update.
+2. Embed it in a `auth_config.json` that's stored in the backend with public-read, and embed that path in the app. 
+
+Since getting this auth config will be one of the first things the app does, it must be public and small. It must also never contain secret pii information that eg leaks user credentials. 
+
 ## Pseudo code 
 
 This is the skeleton auth service 
