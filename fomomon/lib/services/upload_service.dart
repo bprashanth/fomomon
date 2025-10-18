@@ -89,9 +89,6 @@ class UploadService {
       "upload_service: found site: ${site.id}, bucketRoot: ${site.bucketRoot}",
     );
 
-    // Resolve bucket root with fallback logic
-    final resolvedBucketRoot = _resolveBucketRoot(site.bucketRoot, sites);
-
     final timestampStr = _sanitizeTimestamp(session.timestamp);
     final portraitRemotePath =
         '${site.id}/${session.userId}_${timestampStr}_portrait.jpg';
@@ -100,13 +97,13 @@ class UploadService {
 
     final portraitUrl = await uploadFile(
       session.portraitImagePath,
-      resolvedBucketRoot,
+      site.bucketRoot,
       portraitRemotePath,
     );
 
     final landscapeUrl = await uploadFile(
       session.landscapeImagePath,
-      resolvedBucketRoot,
+      site.bucketRoot,
       landscapeRemotePath,
     );
 
@@ -116,7 +113,7 @@ class UploadService {
     final sessionJsonPath = 'sessions/${session.userId}_${timestampStr}.json';
     final sessionUrl = await uploadJson(
       session.toJson(),
-      resolvedBucketRoot,
+      site.bucketRoot,
       sessionJsonPath,
     );
     print(
