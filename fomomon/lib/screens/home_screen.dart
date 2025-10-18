@@ -206,28 +206,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              // GPS panel with relative top
-              Positioned(
-                top: gpsTop,
-                left: 16,
-                right: 16,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                    child: Container(
-                      width: double.infinity,
-                      padding: EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.3),
-                        ),
-                      ),
-                      child: GpsFeedbackPanel(user: _userPos, sites: _sites),
-                    ),
-                  ),
+              // Fullscreen radar panel (no box or blur)
+              Positioned.fill(
+                child: Center(
+                  child: GpsFeedbackPanel(user: _userPos, sites: _sites),
                 ),
               ),
 
