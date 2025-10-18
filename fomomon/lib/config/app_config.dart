@@ -4,7 +4,7 @@ class AppConfig {
   static bool isGuestMode = false;
   // Path to a local directory, trailing slash is optional
   static String? _localRoot;
-  static double? mockLat = 10.31329;
+  static double? mockLat = 10.31344;
   static double? mockLng = 76.83704;
 
   // Production variables
