@@ -1,118 +1,184 @@
-/// gps_feedback_panel.dart
-/// ------------------------
-/// Widget that visually displays user's position and nearby sites
-/// Does not use an actual map—renders dot offsets relative to user
-///
-/// Args:
-/// - user: Position?
-/// - sites: List<Site>
-///
-/// Renders:
-/// - Red dots indicate nearby sites
-/// - Yellow dot indicates user's position
-///
-/// How it works:
-/// - The rendering happens by subtracting Geolocator's distanceBetween
-///   from the user's position to the site's position
-/// - Since we're not using maps, this subtraction is done in degrees
-///   and then converted to pixels using a fixed scale factor
-/// - The panels has a fixed size of 200x200 pixels. We use a scale factor of
-///   0.5 to convert meters to pixels.
-
+import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import '../models/site.dart';
 import 'pulsing_dot.dart';
 
-class GpsFeedbackPanel extends StatelessWidget {
+class GpsFeedbackPanel extends StatefulWidget {
   final Position? user;
   final List<Site> sites;
 
   const GpsFeedbackPanel({super.key, required this.user, required this.sites});
 
   @override
+  State<GpsFeedbackPanel> createState() => _GpsFeedbackPanelState();
+}
+
+class _GpsFeedbackPanelState extends State<GpsFeedbackPanel> {
+  double? _heading;
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen to compass heading
+    FlutterCompass.events?.listen((event) {
+      if (!mounted) return;
+      setState(() => _heading = event.heading ?? 0);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.center,
-      child: Container(
-        width: 200,
-        height: 200,
-        decoration: BoxDecoration(
-          color: const Color.fromARGB(255, 30, 58, 118),
-          border: Border.all(
-            color: const Color.fromARGB(255, 4, 252, 70),
-            width: 1,
-          ),
-          borderRadius: BorderRadius.circular(100),
+    if (widget.user == null) {
+      return const Center(
+        child: Text(
+          "Acquiring GPS...",
+          style: TextStyle(color: Colors.white54),
         ),
-        child: Stack(children: [_buildUserDot(), ..._buildSiteDots()]),
+      );
+    }
+
+    final size = MediaQuery.of(context).size.width * 0.9; // nearly full width
+
+    return Center(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            radius: 0.9,
+            colors: [
+              Color(0xFF00111F), // dark center
+              Color(0xFF002A3E),
+              Color(0xFF003D54),
+              Color(0xFF005E72),
+            ],
+            stops: [0.1, 0.4, 0.7, 1.0],
+          ),
+        ),
+        child: CustomPaint(
+          painter: _RadarPainter(
+            user: widget.user!,
+            sites: widget.sites,
+            heading: _heading ?? 0,
+          ),
+          child: Center(
+            child: PulsingDot(
+              color: const Color.fromARGB(255, 0, 255, 128),
+              size: 10,
+            ),
+          ),
+        ),
       ),
     );
   }
+}
 
-  Widget _buildUserDot() {
-    if (user == null) return const SizedBox();
-    return Positioned(
-      left: 85,
-      top: 85,
-      child: PulsingDot(color: const Color.fromARGB(255, 7, 255, 61), size: 6),
+/// Draws radar rings and site dots relative to user
+class _RadarPainter extends CustomPainter {
+  final Position user;
+  final List<Site> sites;
+  final double heading;
+  static const double metersPerPixel = 2.0; // scale factor
+
+  _RadarPainter({
+    required this.user,
+    required this.sites,
+    required this.heading,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxRadius = size.width / 2;
+
+    // 1️⃣ Draw concentric rings
+    final ringPaint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..color = Colors.white.withOpacity(0.08)
+          ..strokeWidth = 1.0;
+
+    for (double r = maxRadius / 4; r <= maxRadius; r += maxRadius / 4) {
+      canvas.drawCircle(center, r, ringPaint);
+    }
+
+    // 2️⃣ Draw semi-transparent gradient overlay to make shading smoother
+    final ringGradient = RadialGradient(
+      colors: [Colors.white.withOpacity(0.02), Colors.white.withOpacity(0.0)],
+      stops: const [0.8, 1.0],
     );
-  }
+    final rect = Rect.fromCircle(center: center, radius: maxRadius);
+    canvas.drawCircle(
+      center,
+      maxRadius,
+      Paint()..shader = ringGradient.createShader(rect),
+    );
 
-  List<Widget> _buildSiteDots() {
-    if (user == null) return [];
-
-    return sites.map((site) {
-      final dx = Geolocator.distanceBetween(
-        user!.latitude,
-        user!.longitude,
-        user!.latitude,
+    // 3️⃣ Draw each site relative to user
+    for (final site in sites) {
+      final distance = Geolocator.distanceBetween(
+        user.latitude,
+        user.longitude,
+        site.lat,
         site.lng,
       );
-      final dy = Geolocator.distanceBetween(
-        user!.latitude,
-        user!.longitude,
+
+      if (distance > maxRadius * metersPerPixel * 2) continue; // too far, skip
+
+      final bearing = Geolocator.bearingBetween(
+        user.latitude,
+        user.longitude,
         site.lat,
-        user!.longitude,
+        site.lng,
       );
 
-      final left = 90 + dx * (site.lng > user!.longitude ? 1 : -1) * 0.5;
-      final top = 90 + dy * (site.lat > user!.latitude ? 1 : -1) * 0.5;
-      print(
-        "gps_panel: site: ${site.id}, dx: $dx, dy: $dy, left: $left, top: $top, user: ${user!.latitude}, ${user!.longitude}, site: ${site.lat}, ${site.lng}, user: ${user!.latitude}, ${user!.longitude}",
-      );
+      // Convert to radians and adjust for device heading
+      final relativeAngle = ((bearing - heading + 360) % 360) * pi / 180;
 
-      // The clamp() is used to ensure that the left and top values are within
-      // bounds 0-180 pixels. This gives us a range of 360m for sites. Far away
-      // sites will appear as dots on the edge of the panel.
-      return Positioned(
-        left: left.clamp(0, 180),
-        top: top.clamp(0, 180),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              site.id,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 6,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'monospace',
-                backgroundColor: Colors.transparent,
-              ),
-            ),
-            _buildDot(color: const Color.fromARGB(255, 7, 255, 61)),
-          ],
+      // Distance to pixel radius (capped to ring edge)
+      final radius = (distance / metersPerPixel).clamp(0, maxRadius);
+
+      final dx = radius * sin(relativeAngle);
+      final dy = -radius * cos(relativeAngle);
+      final sitePos = center + Offset(dx, dy);
+
+      // Draw glowing dot
+      final siteColor = const Color(0xFF00FFB2);
+      final glowPaint =
+          Paint()
+            ..color = siteColor.withOpacity(0.3)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+      canvas.drawCircle(sitePos, 12, glowPaint);
+
+      final dotPaint = Paint()..color = siteColor;
+      canvas.drawCircle(sitePos, 8, dotPaint);
+
+      // Optional: site label
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: site.id,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+          ),
         ),
+        textDirection: TextDirection.ltr,
       );
-    }).toList();
+      textPainter.layout();
+      textPainter.paint(canvas, sitePos - Offset(textPainter.width / 2, 16));
+    }
   }
 
-  Widget _buildDot({required Color color, double size = 14}) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    );
+  @override
+  bool shouldRepaint(covariant _RadarPainter oldDelegate) {
+    return oldDelegate.heading != heading ||
+        oldDelegate.user.latitude != user.latitude ||
+        oldDelegate.user.longitude != user.longitude ||
+        oldDelegate.sites != sites;
   }
 }
