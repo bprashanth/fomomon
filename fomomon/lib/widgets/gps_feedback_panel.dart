@@ -228,7 +228,7 @@ class _CompassPainter extends CustomPainter {
       tp.paint(canvas, pos - Offset(tp.width / 2, 18));
     }
 
-    // === Light cone (draw last, always on top) ===
+    // === 4. Light cone (draw last, always on top) ===
     const coneSweep = 40.0; // degrees width
     final conePaint =
         Paint()
@@ -253,10 +253,10 @@ class _CompassPainter extends CustomPainter {
     canvas.drawPath(conePath, conePaint);
     canvas.restore();
 
-    // === 6. N / S / E / W marks ===
+    // === 5. N / S / E / W marks ===
     _drawCompassMarks(canvas, center, maxR * 0.93, heading);
 
-    // === Thick border band for metrics ===
+    // === 6. Thick border band for metrics ===
     // Outer darker ring
     final outerBandPaint =
         Paint()
@@ -389,6 +389,7 @@ class _CompassPainter extends CustomPainter {
       old.sites != sites;
 }
 
+// Indicates the distance of 1 ring in meters.
 class _DistanceLegend extends StatelessWidget {
   final double metersPerPixel;
   final double maxR;
@@ -401,6 +402,7 @@ class _DistanceLegend extends StatelessWidget {
     final visibleMeters = (maxR * metersPerPixel).toInt();
     final ringCount = 5; // same as your painter rings
     final ringSpacing = (visibleMeters / ringCount).round();
+    final color = const Color.fromARGB(255, 137, 231, 247).withOpacity(0.5);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -410,21 +412,9 @@ class _DistanceLegend extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-              width: 2,
-              height: 10,
-              color: Colors.white.withOpacity(0.7),
-            ),
-            Container(
-              width: 60,
-              height: 2,
-              color: Colors.white.withOpacity(0.5),
-            ),
-            Container(
-              width: 2,
-              height: 10,
-              color: Colors.white.withOpacity(0.7),
-            ),
+            Container(width: 2, height: 10, color: color),
+            Container(width: 60, height: 2, color: color),
+            Container(width: 2, height: 10, color: color),
           ],
         ),
         const SizedBox(height: 4),

@@ -17,6 +17,7 @@ import 'dart:async';
 import 'dart:ui';
 import '../widgets/upload_dial_widget.dart';
 import '../screens/site_selection_screen.dart';
+import '../widgets/distance_info_panel.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -172,7 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final screenHeight = constraints.maxHeight;
           final gpsTop = screenHeight * 0.40; // 12% from top
           final fomoTop = screenHeight * 0.05; // 4% from top
-          final uploadTop = screenHeight * 0.20; // 10% from top
+          final uploadTop = screenHeight * 0.10; // 10% from top
 
           return Stack(
             children: [
@@ -212,59 +213,58 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: GpsFeedbackPanel(user: _userPos, sites: _sites),
                 ),
               ),
-
-              // Floating plus button (still anchored to bottom, which is fine)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: 32),
-                  child: PlusButton(
-                    enabled: _userPos != null && _nearestSite != null,
-                    onPressed: () {
-                      // These three variables interplay in a slightly
-                      // confusing way. UserPos and nearestSite are used to
-                      // determine whether gps has been acquired - these two
-                      // variables tell us: i know the user's position, and i
-                      // know the nearest site. There will always be a nearest
-                      // site, as long as we have gps signal.
-                      // There will NOT always be a site within range, however.
-                      // The range is defined as a threshold radius. Within
-                      // this range we auto select the nearest site, outside
-                      // this range, we show the site selection screen.
-                      if (_userPos != null && _nearestSite != null) {
-                        if (_isWithinRange) {
-                          // Launch pipeline directly with nearest site
-                          _launchPipeline(
-                            context,
-                            getUserId(widget.name, widget.email, widget.org),
-                            _nearestSite!,
-                            widget.name,
-                            widget.email,
-                            widget.org,
-                          );
-                        } else {
-                          // Launch site selection screen
-                          _launchSiteSelection(
-                            context,
-                            getUserId(widget.name, widget.email, widget.org),
-                            _sites,
-                            _nearestSite,
-                            widget.name,
-                            widget.email,
-                            widget.org,
-                          );
-                        }
+              // --- 1. distance info panel just above bottom edge ---
+              Positioned(
+                bottom: 20,
+                left: 0,
+                right: 0,
+                child: DistanceInfoPanel(
+                  user: _userPos,
+                  sites: _sites,
+                  onLaunch: (site) {
+                    // These three variables interplay in a slightly
+                    // confusing way. UserPos and nearestSite are used to
+                    // determine whether gps has been acquired - these two
+                    // variables tell us: i know the user's position, and i
+                    // know the nearest site. There will always be a nearest
+                    // site, as long as we have gps signal.
+                    // There will NOT always be a site within range, however.
+                    // The range is defined as a threshold radius. Within
+                    // this range we auto select the nearest site, outside
+                    // this range, we show the site selection screen.
+                    if (_userPos != null && _nearestSite != null) {
+                      if (_isWithinRange) {
+                        // Launch pipeline directly with nearest site
+                        _launchPipeline(
+                          context,
+                          getUserId(widget.name, widget.email, widget.org),
+                          _nearestSite!,
+                          widget.name,
+                          widget.email,
+                          widget.org,
+                        );
                       } else {
-                        // Show toast when GPS is not ready
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Acquiring GPS, please retry in 2s'),
-                            duration: Duration(seconds: 2),
-                          ),
+                        // Launch site selection screen
+                        _launchSiteSelection(
+                          context,
+                          getUserId(widget.name, widget.email, widget.org),
+                          _sites,
+                          _nearestSite,
+                          widget.name,
+                          widget.email,
+                          widget.org,
                         );
                       }
-                    },
-                  ),
+                    } else {
+                      // Show toast when GPS is not ready
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Acquiring GPS, please retry in 2s'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
                 ),
               ),
             ],
