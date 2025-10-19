@@ -49,19 +49,36 @@ class _GpsFeedbackPanelState extends State<GpsFeedbackPanel> {
       );
     }
 
-    final size = MediaQuery.of(context).size.width * 0.9;
+    final size = MediaQuery.of(context).size.width;
 
     return Center(
-      child: CustomPaint(
-        size: Size(size, size),
-        painter: _CompassPainter(
-          user: widget.user!,
-          sites: widget.sites,
-          heading: _heading,
-          incline: _pitch,
-        ),
-        child: Center(
-          child: PulsingDot(color: const Color(0xFF00FF80), size: 10),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // --- radar canvas ---
+            CustomPaint(
+              size: Size(size, size),
+              painter: _CompassPainter(
+                user: widget.user!,
+                sites: widget.sites,
+                heading: _heading,
+                incline: _pitch,
+              ),
+              child: Center(
+                child: PulsingDot(color: const Color(0xFF00FF80), size: 10),
+              ),
+            ),
+
+            // --- distance legend at bottom ---
+            Positioned(
+              right: size * 0.05, // tweak until it visually aligns
+              bottom: 0,
+              child: _DistanceLegend(metersPerPixel: 2.0, maxR: size / 2),
+            ),
+          ],
         ),
       ),
     );
@@ -370,4 +387,56 @@ class _CompassPainter extends CustomPainter {
       old.user.latitude != user.latitude ||
       old.user.longitude != user.longitude ||
       old.sites != sites;
+}
+
+class _DistanceLegend extends StatelessWidget {
+  final double metersPerPixel;
+  final double maxR;
+
+  const _DistanceLegend({required this.metersPerPixel, required this.maxR});
+
+  @override
+  Widget build(BuildContext context) {
+    // total range represented by the radar's radius
+    final visibleMeters = (maxR * metersPerPixel).toInt();
+    final ringCount = 5; // same as your painter rings
+    final ringSpacing = (visibleMeters / ringCount).round();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // --- line with end caps ---
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 2,
+              height: 10,
+              color: Colors.white.withOpacity(0.7),
+            ),
+            Container(
+              width: 60,
+              height: 2,
+              color: Colors.white.withOpacity(0.5),
+            ),
+            Container(
+              width: 2,
+              height: 10,
+              color: Colors.white.withOpacity(0.7),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '1 ring ≈ $ringSpacing m',
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 10,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
+    );
+  }
 }
