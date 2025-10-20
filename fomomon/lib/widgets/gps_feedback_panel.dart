@@ -1,7 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter_compass/flutter_compass.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import '../models/site.dart';
 import 'pulsing_dot.dart';
@@ -9,25 +8,25 @@ import 'pulsing_dot.dart';
 class GpsFeedbackPanel extends StatefulWidget {
   final Position? user;
   final List<Site> sites;
+  final double heading;
 
-  const GpsFeedbackPanel({super.key, required this.user, required this.sites});
+  const GpsFeedbackPanel({
+    super.key,
+    required this.user,
+    required this.sites,
+    required this.heading,
+  });
 
   @override
   State<GpsFeedbackPanel> createState() => _GpsFeedbackPanelState();
 }
 
 class _GpsFeedbackPanelState extends State<GpsFeedbackPanel> {
-  double _heading = 0;
   double _pitch = 0;
 
   @override
   void initState() {
     super.initState();
-
-    FlutterCompass.events?.listen((event) {
-      if (!mounted) return;
-      setState(() => _heading = event.heading ?? 0);
-    });
 
     accelerometerEvents.listen((e) {
       if (!mounted) return;
@@ -64,7 +63,7 @@ class _GpsFeedbackPanelState extends State<GpsFeedbackPanel> {
               painter: _CompassPainter(
                 user: widget.user!,
                 sites: widget.sites,
-                heading: _heading,
+                heading: widget.heading,
                 incline: _pitch,
               ),
               child: Center(

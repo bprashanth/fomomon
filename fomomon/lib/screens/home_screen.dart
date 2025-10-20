@@ -18,6 +18,7 @@ import 'dart:ui';
 import '../widgets/upload_dial_widget.dart';
 import '../screens/site_selection_screen.dart';
 import '../widgets/distance_info_panel.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -69,6 +70,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // the focus of various panels like the disntance info panel and the route
   // advisory panel.
   int _currentIndex = 0;
+
+  double _heading = 0.0;
 
   @override
   void initState() {
@@ -132,6 +135,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _isWithinRange = nearby.isWithinRange;
         _lastAcceptedUserPos = userPos;
       });
+    });
+
+    FlutterCompass.events?.listen((event) {
+      if (!mounted) return;
+      setState(() => _heading = event.heading ?? 0);
     });
   }
 
@@ -212,10 +220,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
+              // Route advisory
+              // Positioned(
+              //   top: screenHeight * 0.28, // just above radar
+              //   left: 0,
+              //   right: 0,
+              //   child: AdvisoryBanner(
+              //     user: _userPos,
+              //     site: _sortedSites[_currentIndex],
+              //     heading: _heading,
+              //   ),
+              // ),
+
               // Fullscreen radar panel (no box or blur)
               Positioned.fill(
                 child: Center(
-                  child: GpsFeedbackPanel(user: _userPos, sites: _sites),
+                  child: GpsFeedbackPanel(
+                    user: _userPos,
+                    sites: _sites,
+                    heading: _heading,
+                  ),
                 ),
               ),
               // --- 1. distance info panel just above bottom edge ---
