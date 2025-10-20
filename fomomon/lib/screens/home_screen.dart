@@ -65,6 +65,11 @@ class _HomeScreenState extends State<HomeScreen> {
   // TODO(prashanth@): make this 500 in test mode?
   final double triggerRadius = 30.0;
 
+  // An index into the sites array. Used to indicate which site is currently
+  // the focus of various panels like the disntance info panel and the route
+  // advisory panel.
+  int _currentIndex = 0;
+
   @override
   void initState() {
     super.initState();
@@ -221,6 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: DistanceInfoPanel(
                   user: _userPos,
                   sites: _sites,
+                  currentIndex: _currentIndex,
                   onLaunch: (site) {
                     // These three variables interplay in a slightly
                     // confusing way. UserPos and nearestSite are used to
@@ -264,6 +270,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       );
                     }
+                  },
+                  onNext: () {
+                    setState(() {
+                      _currentIndex = (_currentIndex + 1) % _sites.length;
+                    });
                   },
                 ),
               ),

@@ -6,13 +6,19 @@ import 'plus_button.dart';
 class DistanceInfoPanel extends StatefulWidget {
   final Position? user;
   final List<Site> sites;
-  final Function(Site) onLaunch; // triggers pipeline
+  // Triggers pipeline
+  final Function(Site) onLaunch;
+  // An index into the sorted sites list. Owned by the parent.
+  final int currentIndex;
+  final VoidCallback onNext;
 
   const DistanceInfoPanel({
     super.key,
     required this.user,
     required this.sites,
     required this.onLaunch,
+    required this.currentIndex,
+    required this.onNext,
   });
 
   @override
@@ -20,7 +26,6 @@ class DistanceInfoPanel extends StatefulWidget {
 }
 
 class _DistanceInfoPanelState extends State<DistanceInfoPanel> {
-  int _currentIndex = 0;
   late List<Site> _sortedSites;
 
   @override
@@ -65,7 +70,7 @@ class _DistanceInfoPanelState extends State<DistanceInfoPanel> {
       return const SizedBox.shrink();
     }
 
-    final current = _sortedSites[_currentIndex % _sortedSites.length];
+    final current = _sortedSites[widget.currentIndex];
     final distance = Geolocator.distanceBetween(
       widget.user!.latitude,
       widget.user!.longitude,
@@ -192,9 +197,7 @@ class _DistanceInfoPanelState extends State<DistanceInfoPanel> {
               color: Color(0xFF4FFD73),
             ),
             onPressed: () {
-              setState(
-                () => _currentIndex = (_currentIndex + 1) % _sortedSites.length,
-              );
+              widget.onNext();
             },
           ),
 
