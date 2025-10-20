@@ -19,6 +19,7 @@ import '../widgets/upload_dial_widget.dart';
 import '../screens/site_selection_screen.dart';
 import '../widgets/distance_info_panel.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import '../widgets/route_advisory.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -39,6 +40,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   Position? _userPos;
   List<Site> _sites = [];
+  List<Site> _sortedSites = [];
   // _nearestSite is the site that is closest to the user's position
   // It is used to launch the pipeline regardless of distance
   Site? _nearestSite;
@@ -129,11 +131,13 @@ class _HomeScreenState extends State<HomeScreen> {
       print(
         "[home_screen] userPos: $userPos, nearby: ${nearby.site?.id}, withinRange: ${nearby.isWithinRange} portraitPath: ${nearby.site?.localPortraitPath}, landscapePath: ${nearby.site?.localLandscapePath}",
       );
+
       setState(() {
         _userPos = userPos;
         _nearestSite = nearby.site;
         _isWithinRange = nearby.isWithinRange;
         _lastAcceptedUserPos = userPos;
+        _sortedSites = sortSitesByDistance(userPos, _sites);
       });
     });
 
@@ -221,16 +225,19 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
 
               // Route advisory
-              // Positioned(
-              //   top: screenHeight * 0.28, // just above radar
-              //   left: 0,
-              //   right: 0,
-              //   child: AdvisoryBanner(
-              //     user: _userPos,
-              //     site: _sortedSites[_currentIndex],
-              //     heading: _heading,
-              //   ),
-              // ),
+              Positioned(
+                top: screenHeight * 0.25, // just above radar
+                left: 0,
+                right: 0,
+                child:
+                    (_sortedSites.isNotEmpty && _userPos != null)
+                        ? AdvisoryBanner(
+                          user: _userPos,
+                          site: _sortedSites[_currentIndex],
+                          heading: _heading,
+                        )
+                        : const SizedBox(),
+              ),
 
               // Fullscreen radar panel (no box or blur)
               Positioned.fill(
@@ -249,7 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 right: 0,
                 child: DistanceInfoPanel(
                   user: _userPos,
-                  sites: _sites,
+                  sortedSites: _sortedSites,
                   currentIndex: _currentIndex,
                   onLaunch: (site) {
                     // These three variables interplay in a slightly
@@ -297,7 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                   onNext: () {
                     setState(() {
-                      _currentIndex = (_currentIndex + 1) % _sites.length;
+                      _currentIndex = (_currentIndex + 1) % _sortedSites.length;
                     });
                   },
                 ),
@@ -359,4 +366,22 @@ void _launchSiteSelection(
           ),
     ),
   );
+}
+
+List<Site> sortSitesByDistance(Position user, List<Site> sites) {
+  return List<Site>.from(sites)..sort((a, b) {
+    final da = Geolocator.distanceBetween(
+      user.latitude,
+      user.longitude,
+      a.lat,
+      a.lng,
+    );
+    final db = Geolocator.distanceBetween(
+      user.latitude,
+      user.longitude,
+      b.lat,
+      b.lng,
+    );
+    return da.compareTo(db);
+  });
 }

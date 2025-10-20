@@ -5,17 +5,19 @@ import 'plus_button.dart';
 
 class DistanceInfoPanel extends StatefulWidget {
   final Position? user;
-  final List<Site> sites;
+  final List<Site> sortedSites;
   // Triggers pipeline
   final Function(Site) onLaunch;
   // An index into the sorted sites list. Owned by the parent.
   final int currentIndex;
   final VoidCallback onNext;
 
+  // TODO(prashanth@): collapse sortedSites and currentIndex into one and just
+  // take "currentSite"
   const DistanceInfoPanel({
     super.key,
     required this.user,
-    required this.sites,
+    required this.sortedSites,
     required this.onLaunch,
     required this.currentIndex,
     required this.onNext,
@@ -26,51 +28,23 @@ class DistanceInfoPanel extends StatefulWidget {
 }
 
 class _DistanceInfoPanelState extends State<DistanceInfoPanel> {
-  late List<Site> _sortedSites;
-
   @override
   void didUpdateWidget(covariant DistanceInfoPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _computeNearestSites();
   }
 
   @override
   void initState() {
     super.initState();
-    _computeNearestSites();
-  }
-
-  void _computeNearestSites() {
-    if (widget.user == null) {
-      _sortedSites = [];
-      return;
-    }
-
-    final user = widget.user!;
-    _sortedSites = List<Site>.from(widget.sites)..sort((a, b) {
-      final da = Geolocator.distanceBetween(
-        user.latitude,
-        user.longitude,
-        a.lat,
-        a.lng,
-      );
-      final db = Geolocator.distanceBetween(
-        user.latitude,
-        user.longitude,
-        b.lat,
-        b.lng,
-      );
-      return da.compareTo(db);
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.user == null || _sortedSites.isEmpty) {
+    if (widget.user == null || widget.sortedSites.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final current = _sortedSites[widget.currentIndex];
+    final current = widget.sortedSites[widget.currentIndex];
     final distance = Geolocator.distanceBetween(
       widget.user!.latitude,
       widget.user!.longitude,
