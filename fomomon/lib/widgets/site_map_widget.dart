@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/site.dart';
+import 'package:flutter/painting.dart';
 
 enum BasemapType { contour, satellite }
 
@@ -40,6 +42,10 @@ class _SiteMapWidgetState extends State<SiteMapWidget> {
   List<List<LatLng>> _kmlPolygons = []; // For Polygon geometries
   LatLng? _kmlCenter;
   bool _isLoadingKml = false;
+  bool _hasAlphaEarthImageBytes = false;
+  Uint8List? _alphaEarthImageBytes;
+  double _alphaEarthOpacity =
+      0.0; // Slider value for overlay opacity (0 = hidden)
   final MapController _mapController = MapController();
 
   @override
@@ -47,6 +53,24 @@ class _SiteMapWidgetState extends State<SiteMapWidget> {
     super.initState();
     if (widget.geojsonAssetPath != null || widget.kmlAssetPath != null) {
       _loadKmlData();
+    }
+    _checkForAlphaEarthImage();
+  }
+
+  Future<void> _checkForAlphaEarthImage() async {
+    try {
+      // Try to load the AlphaEarth PNG
+      final imageBytes = await rootBundle.load(
+        'assets/maps/alphaearth_2024_10m.png',
+      );
+      setState(() {
+        _hasAlphaEarthImageBytes = true;
+        _alphaEarthImageBytes = imageBytes.buffer.asUint8List();
+      });
+      print('AlphaEarth image loaded successfully');
+    } catch (e) {
+      print('AlphaEarth image not found, will skip rendering: $e');
+      // Image not available, silently continue
     }
   }
 
@@ -326,12 +350,16 @@ class _SiteMapWidgetState extends State<SiteMapWidget> {
                 interactiveFlags: InteractiveFlag.all,
               ),
               children: [
+                // Tile layer - always show base map
                 TileLayer(
                   urlTemplate: _getTileLayerUrl(),
                   userAgentPackageName: 'com.fomomon.app',
                   maxZoom: 18,
                   subdomains: const ['a', 'b', 'c', 'd'],
                 ),
+                // Add AlphaEarth overlay if opacity > 0
+                if (_alphaEarthOpacity > 0 && _hasAlphaEarthImageBytes)
+                  _buildAlphaEarthOverlay(),
                 // Add polylines (LineStrings) - blue for transects
                 PolylineLayer(
                   polylines:
@@ -407,9 +435,114 @@ class _SiteMapWidgetState extends State<SiteMapWidget> {
               const Center(
                 child: CircularProgressIndicator(color: Color(0xFF00FF80)),
               ),
+
+            // AlphaEarth overlay slider at the bottom (inconspicuous)
+            if (_hasAlphaEarthImageBytes)
+              Positioned(
+                left: 8,
+                right: 8,
+                bottom: 8,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.grass_sharp,
+                      size: 12,
+                      color:
+                          _alphaEarthOpacity > 0
+                              ? const Color(0xFF00FF80)
+                              : Colors.white.withOpacity(0.3),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderThemeData(
+                          activeTrackColor: const Color(0xFF00FF80),
+                          inactiveTrackColor: Colors.white.withOpacity(0.15),
+                          thumbColor: const Color(0xFF00FF80),
+                          overlayColor: const Color(
+                            0xFF00FF80,
+                          ).withOpacity(0.1),
+                          trackHeight: 1.5,
+                          thumbShape: const RoundSliderThumbShape(
+                            enabledThumbRadius: 4,
+                          ),
+                        ),
+                        child: Slider(
+                          value: _alphaEarthOpacity,
+                          min: 0.0,
+                          max: 1.0,
+                          onChanged: (value) {
+                            setState(() {
+                              _alphaEarthOpacity = value;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (_alphaEarthOpacity > 0)
+                      Text(
+                        '${(_alphaEarthOpacity * 100).toInt()}%',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 8,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAlphaEarthOverlay() {
+    // Calculate bounds from KML points to place the image correctly
+    if (_kmlPoints.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // Get bounding box of all points
+    double minLat = _kmlPoints.first.latitude;
+    double maxLat = _kmlPoints.first.latitude;
+    double minLng = _kmlPoints.first.longitude;
+    double maxLng = _kmlPoints.first.longitude;
+
+    for (final point in _kmlPoints) {
+      minLat = minLat < point.latitude ? minLat : point.latitude;
+      maxLat = maxLat > point.latitude ? maxLat : point.latitude;
+      minLng = minLng < point.longitude ? minLng : point.longitude;
+      maxLng = maxLng > point.longitude ? maxLng : point.longitude;
+    }
+
+    // Also check polylines and polygons for bounds
+    for (final line in _kmlPolylines) {
+      for (final point in line) {
+        minLat = minLat < point.latitude ? minLat : point.latitude;
+        maxLat = maxLat > point.latitude ? maxLat : point.latitude;
+        minLng = minLng < point.longitude ? minLng : point.longitude;
+        maxLng = maxLng > point.longitude ? maxLng : point.longitude;
+      }
+    }
+
+    for (final polygon in _kmlPolygons) {
+      for (final point in polygon) {
+        minLat = minLat < point.latitude ? minLat : point.latitude;
+        maxLat = maxLat > point.latitude ? maxLat : point.latitude;
+        minLng = minLng < point.longitude ? minLng : point.longitude;
+        maxLng = maxLng > point.longitude ? maxLng : point.longitude;
+      }
+    }
+
+    return OverlayImageLayer(
+      overlayImages: [
+        OverlayImage(
+          bounds: LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng)),
+          opacity: _alphaEarthOpacity,
+          imageProvider: MemoryImage(_alphaEarthImageBytes!),
+        ),
+      ],
     );
   }
 
@@ -433,12 +566,6 @@ class _SiteMapWidgetState extends State<SiteMapWidget> {
             children: [
               _buildBasemapButton(BasemapType.contour, Icons.terrain),
               const SizedBox(width: 4),
-              // _buildBasemapButton(BasemapType.terrain, Icons.landscape),
-              // const SizedBox(width: 4),
-              // _buildBasemapButton(BasemapType.landscape, Icons.nature),
-              // const SizedBox(width: 4),
-              // _buildBasemapButton(BasemapType.forest, Icons.park),
-              // const SizedBox(width: 4),
               _buildBasemapButton(BasemapType.satellite, Icons.satellite),
             ],
           ),

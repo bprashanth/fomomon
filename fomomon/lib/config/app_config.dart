@@ -1,6 +1,6 @@
 class AppConfig {
   // The "local" and "mock" variables used here are only used in testing mode.
-  static bool isTestMode = false;
+  static bool isTestMode = true;
   static bool isGuestMode = false;
   // Path to a local directory, trailing slash is optional
   static String? _localRoot;
