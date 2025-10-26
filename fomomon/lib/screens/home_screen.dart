@@ -9,17 +9,15 @@ import '../services/gps_service.dart';
 import '../services/site_service.dart';
 import '../models/site.dart';
 import '../widgets/gps_feedback_panel.dart';
-import '../widgets/plus_button.dart';
 import 'package:geolocator/geolocator.dart';
 import '../utils/user_utils.dart';
 import '../screens/capture_screen.dart';
 import 'dart:async';
-import 'dart:ui';
-import '../widgets/upload_dial_widget.dart';
 import '../screens/site_selection_screen.dart';
 import '../widgets/distance_info_panel.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import '../widgets/route_advisory.dart';
+import '../widgets/online_mode_button.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -188,9 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final screenHeight = constraints.maxHeight;
-          final gpsTop = screenHeight * 0.40; // 12% from top
           final fomoTop = screenHeight * 0.05; // 4% from top
-          final uploadTop = screenHeight * 0.10; // 10% from top
 
           return Stack(
             children: [
@@ -211,22 +207,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              // Upload dial widget below FOMO
-              Positioned(
-                top: uploadTop, // ~below FOMO
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: UploadDialWidget(
-                    sites: _sites,
-                    // No need to pass anything here, the widget will handle it
-                  ),
-                ),
-              ),
 
               // Route advisory
               Positioned(
-                top: screenHeight * 0.25, // just above radar
+                top: screenHeight * 0.15, // just above radar
                 left: 0,
                 right: 0,
                 child:
@@ -251,7 +235,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               // --- 1. distance info panel just above bottom edge ---
               Positioned(
-                bottom: 20,
+                bottom: 45,
                 left: 0,
                 right: 0,
                 child: DistanceInfoPanel(
@@ -308,6 +292,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     });
                   },
                 ),
+              ),
+              // Online mode button at bottom
+              OnlineModeButton(
+                userPosition: _userPos,
+                sites: _sites,
+                name: widget.name,
+                email: widget.email,
+                org: widget.org,
               ),
             ],
           );

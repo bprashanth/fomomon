@@ -33,12 +33,16 @@ dependencies:
   uuid: ^4.0.0
   camera: ^0.10.5+2
   provider: ^6.0.5
-  http: ^0.13.6
+  http: ^1.5.0
   path_provider: ^2.1.1
   amazon_cognito_identity_dart_2: ^3.6.0
   flutter_compass: ^0.8.0
   sensors_plus: ^5.0.1
   geolocator: ^10.1.0
+  flutter_map: ^5.0.0
+  latlong2: ^0.9.0
+  geoxml: ^2.6.2
+  json_serializable: ^6.7.1
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -72,6 +76,7 @@ flutter:
     - assets/images/loading.png
     - assets/images/loading_icon.png
     - assets/images/guest_sites/
+    - assets/maps/
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

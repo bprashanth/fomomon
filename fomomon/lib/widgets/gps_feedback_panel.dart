@@ -198,7 +198,8 @@ class _CompassPainter extends CustomPainter {
         site.lat,
         site.lng,
       );
-      final angle = bearing * pi / 180;
+      // Rotate opposite to heading to maintain world-fixed positions (same as compass marks)
+      final angle = (bearing - heading) * pi / 180;
       final r = (distance / metersPerPixel).clamp(0, maxR * 0.9);
       final pos = center + Offset(r * sin(angle), -r * cos(angle));
 
@@ -228,7 +229,7 @@ class _CompassPainter extends CustomPainter {
     }
 
     // === 4. Light cone (draw last, always on top) ===
-    const coneSweep = 40.0; // degrees width
+    const coneSweep = 60.0; // degrees width
     final conePaint =
         Paint()
           ..color = const Color.fromARGB(255, 3, 150, 248).withOpacity(0.5)
@@ -243,8 +244,12 @@ class _CompassPainter extends CustomPainter {
           ..moveTo(0, 0)
           ..arcTo(
             Rect.fromCircle(center: Offset.zero, radius: maxR * 0.9),
-            -coneSweep / 2 * pi / 180,
-            coneSweep * pi / 180,
+            90 * pi / 180 -
+                coneSweep /
+                    2 *
+                    pi /
+                    180, // start at 90° (down) minus half cone width
+            coneSweep * pi / 180, // sweep the cone width
             false,
           )
           ..close();
