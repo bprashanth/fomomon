@@ -23,31 +23,38 @@ class OnlineMapScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      // backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF0D1B22), // Dark background
       body: SafeArea(
         child: Column(
           children: [
             // Header with close button - matching home screen styling
             Container(
               padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Stack(
                 children: [
-                  const Text(
-                    'FOMO',
-                    style: TextStyle(
-                      color: Color.fromARGB(255, 199, 220, 237),
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'trump',
+                  Center(
+                    child: const Text(
+                      'FOMO',
+                      style: TextStyle(
+                        color: Color.fromARGB(255, 199, 220, 237),
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'trump',
+                      ),
                     ),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(
-                      Icons.close,
-                      color: Color.fromARGB(255, 199, 220, 237),
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(
+                          Icons.close,
+                          color: Color.fromARGB(255, 199, 220, 237),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

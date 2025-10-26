@@ -31,31 +31,16 @@ class AdvisoryBanner extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.4),
+          color: const Color(
+            0xFF1A2024,
+          ).withOpacity(0.9), // Dark grey panel background
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            // BoxShadow(
-            //   color: Colors.greenAccent.withOpacity(0.3),
-            //   blurRadius: 6,
-            //   spreadRadius: 1,
-            // ),
-            BoxShadow(
-              color: Colors.greenAccent.withOpacity(0.3),
-              // color: const Color.fromARGB(
-              //   255,
-              //   20,
-              //   172,
-              //   243,
-              // ).withOpacity(0.25), // near-white green
-              blurRadius: 12,
-              spreadRadius: 2,
-            ),
-          ],
+          border: Border.all(color: Colors.white.withOpacity(0.15)),
         ),
         child: Text(
           message,
           style: const TextStyle(
-            color: Color(0xFF4FFD73),
+            color: Color(0xFFF9F8F4),
             fontSize: 20,
             fontWeight: FontWeight.bold,
           ),

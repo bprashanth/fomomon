@@ -183,6 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF0D1B22), // Dark background
       body: LayoutBuilder(
         builder: (context, constraints) {
           final screenHeight = constraints.maxHeight;
@@ -199,7 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Text(
                     'FOMO',
                     style: TextStyle(
-                      color: const Color.fromARGB(255, 199, 220, 237),
+                      color: Colors.white,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'trump',

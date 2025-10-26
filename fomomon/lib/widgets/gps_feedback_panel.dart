@@ -67,7 +67,7 @@ class _GpsFeedbackPanelState extends State<GpsFeedbackPanel> {
                 incline: _pitch,
               ),
               child: Center(
-                child: PulsingDot(color: const Color(0xFF00FF80), size: 10),
+                child: PulsingDot(color: const Color(0xFF7CFF8F), size: 10),
               ),
             ),
 
@@ -98,39 +98,43 @@ class _CompassPainter extends CustomPainter {
   });
 
   static const double metersPerPixel = 2.0;
-  static const Color radarGreen = Color(0xFF00FF80);
+  static const Color radarGreen = Color(0xFF7CFF8F); // Site dots color
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final maxR = size.width / 2;
 
-    // === 1 Pronounced depth bands (green-toned 3D look) ===
+    // === 1. Pronounced depth bands with visible separation ===
     final bandCount = 6;
+
+    // Revised color palette (cooler & more contrast with visible bands)
     final baseColors = [
-      const Color(0xFF001509), // deep inner green-black
-      const Color(0xFF013d1a), // dark forest
-      const Color(0xFF026b31), // mid green
-      const Color(0xFF05a150), // bright green
-      const Color(0xFF38c985), // pale mint
-      const Color.fromARGB(255, 137, 231, 247), // near-white green
+      const Color(0xFF6B8BA6), // innermost — bright blue-gray
+      const Color(0xFF557489), // light-medium transition
+      const Color(0xFF3F5D73), // medium blue-gray
+      const Color(0xFF29485E), // deep cool tone
+      const Color(0xFF1A3647), // very dark edge
+      const Color(0xFF0D1F2F), // outermost — deepest blue-gray
     ];
 
     for (int i = 0; i < bandCount; i++) {
       final innerR = maxR * (i / bandCount) * 0.9;
       final outerR = maxR * ((i + 1) / bandCount) * 0.9;
 
-      // darker inside - lighter outer edge per band
+      // create a gradient with slightly inverted light direction (inner darker, outer lighter)
       final shader = RadialGradient(
-        center: Alignment.center,
+        center: const Alignment(0.0, -0.3), // top-light effect
         radius: 1.0,
         colors: [
-          baseColors[i].withOpacity(1.0),
+          baseColors[i].withOpacity(1.0), // main tone
           baseColors[i].withOpacity(0.9),
-          baseColors[min(i + 1, baseColors.length - 1)].withOpacity(0.7),
-          Colors.white.withOpacity(0.08 + i * 0.02),
+          baseColors[min(i + 1, baseColors.length - 1)].withOpacity(
+            0.6 + (i * 0.05),
+          ), // outer light edge
+          Colors.white.withOpacity(0.06 + i * 0.02), // faint light catch
         ],
-        stops: const [0.0, 0.45, 0.85, 1.0],
+        stops: const [0.0, 0.55, 0.85, 1.0],
       ).createShader(Rect.fromCircle(center: center, radius: outerR));
 
       final bandPaint =
@@ -142,25 +146,33 @@ class _CompassPainter extends CustomPainter {
         Rect.fromCircle(center: center, radius: outerR),
         Paint(),
       );
-      // draw outer
+      // outer circle
       canvas.drawCircle(center, outerR, bandPaint);
-      // erase inner to make ring
+
+      // add subtle soft shadow on the inner edge (enhances 3D feel)
+      final shadowPaint =
+          Paint()
+            ..color = Colors.black.withOpacity(0.2)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.inner, 6);
+      canvas.drawCircle(center, innerR, shadowPaint);
+
+      // erase inside to form the ring
       final erase = Paint()..blendMode = BlendMode.clear;
       canvas.drawCircle(center, innerR, erase);
       canvas.restore();
     }
 
-    // === 2. Concentric rings ===
-    for (int i = 1; i <= 6; i++) {
-      final progress = i / 6;
-      final color = Colors.white.withOpacity(0.04 + progress * 0.05);
+    // === 2. Fine concentric ring strokes ===
+    for (int i = 1; i <= bandCount; i++) {
+      final progress = i / bandCount;
+      final strokeColor = Colors.white.withOpacity(0.05 + progress * 0.04);
       canvas.drawCircle(
         center,
         progress * maxR * 0.9,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2
-          ..color = color,
+          ..strokeWidth = 1.0
+          ..color = strokeColor,
       );
     }
 
@@ -203,14 +215,7 @@ class _CompassPainter extends CustomPainter {
       final r = (distance / metersPerPixel).clamp(0, maxR * 0.9);
       final pos = center + Offset(r * sin(angle), -r * cos(angle));
 
-      // glow + dot
-      canvas.drawCircle(
-        pos,
-        14,
-        Paint()
-          ..color = radarGreen.withOpacity(0.4)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
-      );
+      // dot without glow
       canvas.drawCircle(pos, 8, Paint()..color = radarGreen);
 
       // label above each dot
@@ -232,7 +237,9 @@ class _CompassPainter extends CustomPainter {
     const coneSweep = 60.0; // degrees width
     final conePaint =
         Paint()
-          ..color = const Color.fromARGB(255, 3, 150, 248).withOpacity(0.5)
+          ..color = const Color(0xFF00FFFF).withOpacity(
+            0.5,
+          ) // Cyan/light blue-green
           ..style = PaintingStyle.fill;
 
     canvas.save();
@@ -406,7 +413,7 @@ class _DistanceLegend extends StatelessWidget {
     final visibleMeters = (maxR * metersPerPixel).toInt();
     final ringCount = 5; // same as your painter rings
     final ringSpacing = (visibleMeters / ringCount).round();
-    final color = const Color.fromARGB(255, 137, 231, 247).withOpacity(0.5);
+    final color = Colors.white.withOpacity(0.6);
 
     return Column(
       mainAxisSize: MainAxisSize.min,

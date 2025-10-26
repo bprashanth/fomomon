@@ -56,21 +56,11 @@ class _DistanceInfoPanelState extends State<DistanceInfoPanel> {
       margin: const EdgeInsets.fromLTRB(32, 8, 32, 75),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF0E0E0E).withOpacity(0.9),
+        color: const Color(
+          0xFF1A2024,
+        ).withOpacity(0.9), // Dark grey panel background
         borderRadius: BorderRadius.circular(50),
-        boxShadow: [
-          BoxShadow(
-            color: const Color.fromARGB(
-              255,
-              20,
-              172,
-              243,
-            ).withOpacity(0.25), // near-white green
-            blurRadius: 12,
-            spreadRadius: 2,
-          ),
-        ],
-        border: Border.all(color: const Color(0xFF1A4273)),
+        border: Border.all(color: Colors.white.withOpacity(0.15)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
