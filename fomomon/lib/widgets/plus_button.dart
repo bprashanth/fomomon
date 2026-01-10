@@ -13,25 +13,31 @@ class PlusButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 48.0),
-      child: GestureDetector(
-        // TODO(prashanth@): do we want to guard this with enabled?
-        // We should take a non-enabled press as "add site"?
-        onTap: onPressed,
-        child: Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: enabled ? Colors.amber : Colors.grey.shade800,
-            border: Border.all(
-              color: enabled ? Colors.yellowAccent : Colors.transparent,
-              width: 5,
-            ),
+    return GestureDetector(
+      onTap: enabled ? onPressed : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 70,
+        height: 70,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color:
+              enabled
+                  ? const Color(0xFF4FFD73).withOpacity(0.1) // faint green fill
+                  : Colors.transparent,
+          border: Border.all(
+            color:
+                enabled
+                    ? const Color(0xFF4FFD73).withOpacity(0.9)
+                    : Colors.grey.shade700,
+            width: 4.5,
           ),
-          child: const Center(
-            child: Icon(Icons.add, size: 40, color: Colors.black),
+        ),
+        child: Center(
+          child: Icon(
+            Icons.add,
+            size: 34,
+            color: enabled ? const Color(0xFF4FFD73) : Colors.grey.shade700,
           ),
         ),
       ),

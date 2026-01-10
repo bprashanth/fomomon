@@ -9,14 +9,15 @@ import '../services/gps_service.dart';
 import '../services/site_service.dart';
 import '../models/site.dart';
 import '../widgets/gps_feedback_panel.dart';
-import '../widgets/plus_button.dart';
 import 'package:geolocator/geolocator.dart';
 import '../utils/user_utils.dart';
 import '../screens/capture_screen.dart';
 import 'dart:async';
-import 'dart:ui';
-import '../widgets/upload_dial_widget.dart';
 import '../screens/site_selection_screen.dart';
+import '../widgets/distance_info_panel.dart';
+import 'package:flutter_compass/flutter_compass.dart';
+import '../widgets/route_advisory.dart';
+import '../widgets/online_mode_button.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -37,6 +38,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   Position? _userPos;
   List<Site> _sites = [];
+  List<Site> _sortedSites = [];
   // _nearestSite is the site that is closest to the user's position
   // It is used to launch the pipeline regardless of distance
   Site? _nearestSite;
@@ -63,6 +65,13 @@ class _HomeScreenState extends State<HomeScreen> {
   // - Indoor due to GPS signal attenuation, it's more like 5-10m
   // TODO(prashanth@): make this 500 in test mode?
   final double triggerRadius = 30.0;
+
+  // An index into the sites array. Used to indicate which site is currently
+  // the focus of various panels like the disntance info panel and the route
+  // advisory panel.
+  int _currentIndex = 0;
+
+  double _heading = 0.0;
 
   @override
   void initState() {
@@ -120,12 +129,19 @@ class _HomeScreenState extends State<HomeScreen> {
       print(
         "[home_screen] userPos: $userPos, nearby: ${nearby.site?.id}, withinRange: ${nearby.isWithinRange} portraitPath: ${nearby.site?.localPortraitPath}, landscapePath: ${nearby.site?.localLandscapePath}",
       );
+
       setState(() {
         _userPos = userPos;
         _nearestSite = nearby.site;
         _isWithinRange = nearby.isWithinRange;
         _lastAcceptedUserPos = userPos;
+        _sortedSites = sortSitesByDistance(userPos, _sites);
       });
+    });
+
+    FlutterCompass.events?.listen((event) {
+      if (!mounted) return;
+      setState(() => _heading = event.heading ?? 0);
     });
   }
 
@@ -167,12 +183,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF0D1B22), // Dark background
       body: LayoutBuilder(
         builder: (context, constraints) {
           final screenHeight = constraints.maxHeight;
-          final gpsTop = screenHeight * 0.40; // 12% from top
           final fomoTop = screenHeight * 0.05; // 4% from top
-          final uploadTop = screenHeight * 0.20; // 10% from top
 
           return Stack(
             children: [
@@ -185,7 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Text(
                     'FOMO',
                     style: TextStyle(
-                      color: const Color.fromARGB(255, 199, 220, 237),
+                      color: Colors.white,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'trump',
@@ -193,97 +208,99 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              // Upload dial widget below FOMO
+
+              // Route advisory
               Positioned(
-                top: uploadTop, // ~below FOMO
+                top: screenHeight * 0.15, // just above radar
                 left: 0,
                 right: 0,
+                child:
+                    (_sortedSites.isNotEmpty && _userPos != null)
+                        ? AdvisoryBanner(
+                          user: _userPos,
+                          site: _sortedSites[_currentIndex],
+                          heading: _heading,
+                        )
+                        : const SizedBox(),
+              ),
+
+              // Fullscreen radar panel (no box or blur)
+              Positioned.fill(
                 child: Center(
-                  child: UploadDialWidget(
+                  child: GpsFeedbackPanel(
+                    user: _userPos,
                     sites: _sites,
-                    // No need to pass anything here, the widget will handle it
+                    heading: _heading,
                   ),
                 ),
               ),
-
-              // GPS panel with relative top
+              // --- 1. distance info panel just above bottom edge ---
               Positioned(
-                top: gpsTop,
-                left: 16,
-                right: 16,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                    child: Container(
-                      width: double.infinity,
-                      padding: EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.3),
-                        ),
-                      ),
-                      child: GpsFeedbackPanel(user: _userPos, sites: _sites),
-                    ),
-                  ),
-                ),
-              ),
-
-              // Floating plus button (still anchored to bottom, which is fine)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: 32),
-                  child: PlusButton(
-                    enabled: _userPos != null && _nearestSite != null,
-                    onPressed: () {
-                      // These three variables interplay in a slightly
-                      // confusing way. UserPos and nearestSite are used to
-                      // determine whether gps has been acquired - these two
-                      // variables tell us: i know the user's position, and i
-                      // know the nearest site. There will always be a nearest
-                      // site, as long as we have gps signal.
-                      // There will NOT always be a site within range, however.
-                      // The range is defined as a threshold radius. Within
-                      // this range we auto select the nearest site, outside
-                      // this range, we show the site selection screen.
-                      if (_userPos != null && _nearestSite != null) {
-                        if (_isWithinRange) {
-                          // Launch pipeline directly with nearest site
-                          _launchPipeline(
-                            context,
-                            getUserId(widget.name, widget.email, widget.org),
-                            _nearestSite!,
-                            widget.name,
-                            widget.email,
-                            widget.org,
-                          );
-                        } else {
-                          // Launch site selection screen
-                          _launchSiteSelection(
-                            context,
-                            getUserId(widget.name, widget.email, widget.org),
-                            _sites,
-                            _nearestSite,
-                            widget.name,
-                            widget.email,
-                            widget.org,
-                          );
-                        }
+                bottom: 45,
+                left: 0,
+                right: 0,
+                child: DistanceInfoPanel(
+                  user: _userPos,
+                  sortedSites: _sortedSites,
+                  currentIndex: _currentIndex,
+                  onLaunch: (site) {
+                    // These three variables interplay in a slightly
+                    // confusing way. UserPos and nearestSite are used to
+                    // determine whether gps has been acquired - these two
+                    // variables tell us: i know the user's position, and i
+                    // know the nearest site. There will always be a nearest
+                    // site, as long as we have gps signal.
+                    // There will NOT always be a site within range, however.
+                    // The range is defined as a threshold radius. Within
+                    // this range we auto select the nearest site, outside
+                    // this range, we show the site selection screen.
+                    if (_userPos != null && _nearestSite != null) {
+                      if (_isWithinRange) {
+                        // Launch pipeline directly with nearest site
+                        _launchPipeline(
+                          context,
+                          getUserId(widget.name, widget.email, widget.org),
+                          _nearestSite!,
+                          widget.name,
+                          widget.email,
+                          widget.org,
+                        );
                       } else {
-                        // Show toast when GPS is not ready
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Acquiring GPS, please retry in 2s'),
-                            duration: Duration(seconds: 2),
-                          ),
+                        // Launch site selection screen
+                        _launchSiteSelection(
+                          context,
+                          getUserId(widget.name, widget.email, widget.org),
+                          _sites,
+                          _nearestSite,
+                          widget.name,
+                          widget.email,
+                          widget.org,
                         );
                       }
-                    },
-                  ),
+                    } else {
+                      // Show toast when GPS is not ready
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Acquiring GPS, please retry in 2s'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                  onNext: () {
+                    setState(() {
+                      _currentIndex = (_currentIndex + 1) % _sortedSites.length;
+                    });
+                  },
                 ),
+              ),
+              // Online mode button at bottom
+              OnlineModeButton(
+                userPosition: _userPos,
+                sites: _sites,
+                name: widget.name,
+                email: widget.email,
+                org: widget.org,
               ),
             ],
           );
@@ -342,4 +359,22 @@ void _launchSiteSelection(
           ),
     ),
   );
+}
+
+List<Site> sortSitesByDistance(Position user, List<Site> sites) {
+  return List<Site>.from(sites)..sort((a, b) {
+    final da = Geolocator.distanceBetween(
+      user.latitude,
+      user.longitude,
+      a.lat,
+      a.lng,
+    );
+    final db = Geolocator.distanceBetween(
+      user.latitude,
+      user.longitude,
+      b.lat,
+      b.lng,
+    );
+    return da.compareTo(db);
+  });
 }
