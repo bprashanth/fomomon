@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import '../models/site.dart';
-import '../screens/online_map_screen.dart';
+import '../screens/upload_queue_screen.dart';
 
 class OnlineModeButton extends StatefulWidget {
-  final Position? userPosition;
   final List<Site> sites;
   final String name;
   final String email;
@@ -12,7 +10,6 @@ class OnlineModeButton extends StatefulWidget {
 
   const OnlineModeButton({
     super.key,
-    required this.userPosition,
     required this.sites,
     required this.name,
     required this.email,
@@ -54,8 +51,7 @@ class _OnlineModeButtonState extends State<OnlineModeButton>
     Navigator.of(context).push(
       MaterialPageRoute(
         builder:
-            (context) => OnlineMapScreen(
-              userPosition: widget.userPosition,
+            (context) => UploadQueueScreen(
               sites: widget.sites,
               name: widget.name,
               email: widget.email,

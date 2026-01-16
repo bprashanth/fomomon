@@ -1,8 +1,5 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import '../services/site_service.dart';
-import '../models/site.dart';
 import 'home_screen.dart';
 
 class SitePrefetchScreen extends StatefulWidget {
@@ -21,18 +18,10 @@ class SitePrefetchScreen extends StatefulWidget {
   State<SitePrefetchScreen> createState() => _SitePrefetchScreenState();
 }
 
-class _SitePrefetchScreenState extends State<SitePrefetchScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
+class _SitePrefetchScreenState extends State<SitePrefetchScreen> {
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      duration: const Duration(seconds: 1),
-      vsync: this,
-    )..repeat();
-
     _fetchSites();
   }
 
@@ -65,36 +54,27 @@ class _SitePrefetchScreenState extends State<SitePrefetchScreen>
     }
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Widget _buildRotatingImage() {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (_, __) {
-        final angle = _controller.value * 2 * pi;
-        return Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()..rotateY(angle),
-          child: Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.black, width: 0),
-              borderRadius: BorderRadius.circular(100),
-            ),
-            clipBehavior: Clip.hardEdge,
-            child: Image.asset(
-              // 'assets/images/loading.png',
-              'assets/images/loading_icon.png',
-              fit: BoxFit.scaleDown,
-            ),
+  Widget _buildLoadingIcon() {
+    return Container(
+      width: 80,
+      height: 80,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: const Color.fromARGB(255, 20, 172, 243).withOpacity(0.3),
+            blurRadius: 20,
+            spreadRadius: 2,
           ),
-        );
-      },
+        ],
+      ),
+      child: CircularProgressIndicator(
+        strokeWidth: 4,
+        valueColor: const AlwaysStoppedAnimation<Color>(
+          Color.fromARGB(255, 20, 172, 243),
+        ),
+        backgroundColor: const Color(0xFF1A4273).withOpacity(0.3),
+      ),
     );
   }
 
@@ -106,7 +86,7 @@ class _SitePrefetchScreenState extends State<SitePrefetchScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildRotatingImage(),
+            _buildLoadingIcon(),
             const SizedBox(height: 24),
             const Text(
               "Preparing site data for offline mode...",
