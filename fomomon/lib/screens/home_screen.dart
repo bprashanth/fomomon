@@ -296,7 +296,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               // Online mode button at bottom
               OnlineModeButton(
-                userPosition: _userPos,
                 sites: _sites,
                 name: widget.name,
                 email: widget.email,

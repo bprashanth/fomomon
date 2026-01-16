@@ -73,7 +73,49 @@ class LocalSessionStorage {
   static Future<void> deleteSession(String sessionId) async {
     final dir = await _getSessionDir();
     final file = File('${dir.path}/$sessionId.json');
-    if (await file.exists()) await file.delete();
+
+    // Load session first to get image paths
+    CapturedSession? session;
+    if (await file.exists()) {
+      try {
+        final jsonStr = await file.readAsString();
+        final data = jsonDecode(jsonStr);
+        session = CapturedSession.fromJson(data);
+      } catch (e) {
+        print('Error loading session for deletion ${file.path}: $e');
+      }
+    }
+
+    // Delete portrait image if it exists
+    if (session != null && session.portraitImagePath.isNotEmpty) {
+      try {
+        final portraitFile = File(session.portraitImagePath);
+        if (await portraitFile.exists()) {
+          await portraitFile.delete();
+        }
+      } catch (e) {
+        print('Error deleting portrait image ${session.portraitImagePath}: $e');
+      }
+    }
+
+    // Delete landscape image if it exists
+    if (session != null && session.landscapeImagePath.isNotEmpty) {
+      try {
+        final landscapeFile = File(session.landscapeImagePath);
+        if (await landscapeFile.exists()) {
+          await landscapeFile.delete();
+        }
+      } catch (e) {
+        print(
+          'Error deleting landscape image ${session.landscapeImagePath}: $e',
+        );
+      }
+    }
+
+    // Delete JSON file
+    if (await file.exists()) {
+      await file.delete();
+    }
   }
 
   static Future<void> markUploaded(String sessionId) async {

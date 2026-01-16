@@ -11,7 +11,10 @@ class UploadDialWidget extends StatefulWidget {
   State<UploadDialWidget> createState() => _UploadDialWidgetState();
 }
 
-class _UploadDialWidgetState extends State<UploadDialWidget> {
+// Upload files counters are managed via flutter notifications. 
+// This needs to happen when this widget becomes visible (didChangeDependencies). 
+class _UploadDialWidgetState extends State<UploadDialWidget>
+    with WidgetsBindingObserver {
   int uploaded = 0;
   int total = 0;
   bool hasError = false;
@@ -19,7 +22,29 @@ class _UploadDialWidgetState extends State<UploadDialWidget> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSessions();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh when widget becomes visible
+    _loadSessions();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh when app comes to foreground
+      _loadSessions();
+    }
   }
 
   Future<void> _loadSessions() async {
@@ -43,11 +68,15 @@ class _UploadDialWidgetState extends State<UploadDialWidget> {
           setState(() => uploaded++);
         },
       );
+      // Refresh after upload completes
+      await _loadSessions();
     } catch (e) {
       print("upload_dial_widget: error: $e");
       setState(() {
         hasError = true;
       });
+      // Still refresh to get accurate count even on error
+      await _loadSessions();
     }
   }
 
