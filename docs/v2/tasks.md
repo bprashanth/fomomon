@@ -20,10 +20,10 @@ Implement a persistent session mechanism that allows users to re-enter the app o
     *   **Dependencies**: Use the `flutter_secure_storage` package to store the refresh token securely. Add it to `pubspec.yaml`.
 
 2.  **Restore Session on App Start**:
-    *   In `main.dart`, before the `FomomonApp` is run, add a startup routine that checks for a stored refresh token.
-    *   If a token exists, initialize `AuthService` with this token and navigate the user directly to `HomeScreen`, bypassing the `LoginScreen`. The user is now in a "presumed-authenticated" state.
-    *   `AuthService` will need a new method, e.g., `restoreSession(String refreshToken)`, to re-initialize the `CognitoUser` and `CognitoUserSession` objects from the stored token.
-    *   **Files to Modify**: `fomomon/lib/main.dart`, `fomomon/lib/services/auth_service.dart`.
+    *   In `app.dart`, before the `FomomonApp` is built, add a startup routine that checks for a stored refresh token.
+    *   If a token exists, call `AuthService.restoreSessionOffline()` which returns user info (username, org) and navigate the user directly to `HomeScreen`, bypassing the `LoginScreen`. The user is now in a "presumed-authenticated" state.
+    *   `AuthService.restoreSessionOffline()` creates a "thin" session with only user info. Full session restoration (creating `CognitoUser` and `CognitoUserSession`) is deferred until upload time to enable offline-first access.
+    *   **Files to Modify**: `fomomon/lib/app.dart`, `fomomon/lib/services/auth_service.dart`.
 
 3.  **Defer Authentication to Point of Use**:
     *   The user can now create `CapturedSession`s entirely offline. The actual authentication (token refresh) is only required for network operations.

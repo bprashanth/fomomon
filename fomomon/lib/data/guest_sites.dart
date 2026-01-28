@@ -1,6 +1,22 @@
 /// guest_sites.dart
 /// ----------------
-/// Contains hardcoded guest sites data for offline/demo mode
+/// Contains hardcoded guest sites data for offline/demo mode.
+///
+/// Guest mode is enabled when the user taps "Continue as Guest" on the login
+/// screen. In this mode:
+/// - `AppConfig.configureGuestMode()` is called, setting `isGuestMode = true`.
+/// - `SiteService.fetchSitesAndPrefetchImages()` detects guest mode and calls
+///   `_loadGuestSites()` instead of fetching `sites.json` from the network.
+/// - `_loadGuestSites()` parses this JSON string and uses the `bucket_root`
+///   field (`https://fomomonguest.s3.ap-south-1.amazonaws.com/`) as the
+///   bucket root for all guest sites.
+/// - Uploads in guest mode still go through `UploadService`, but because
+///   no Cognito login ever happens, `AuthService.isUserLoggedIn()` is false
+///   and the app always uses the *no-auth* upload path
+///   (`_uploadFileNoAuth` / `_uploadJsonNoAuth`) directly to this public bucket.
+/// - This means guest uploads never use Cognito tokens or `getValidToken()`,
+///   and the new AuthSessionExpiredException-based login redirect logic
+///   does not affect guest mode.
 
 class GuestSites {
   static const String guestSitesJson = '''

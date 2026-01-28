@@ -16,7 +16,6 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _appName = 'FOMOMON';
 
   // Login screen fields
   String? _selectedOrg;
@@ -65,10 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
     // including org, we can set that in the AppConfig. This happens in
     // handleSubmit.
     // TODO(prashanth@): Consolidate these AppConfig initializations.
-    AppConfig.configure(
-      bucketName: _appName.toLowerCase(),
-      region: 'ap-south-1',
-    );
+    AppConfig.configure();
 
     try {
       final authService = AuthService.instance;
@@ -116,12 +112,8 @@ class _LoginScreenState extends State<LoginScreen> {
       _loginError = null;
     });
 
-    AppConfig.configure(
-      bucketName: _appName.toLowerCase(),
-      // org is reset in the handle submit
-      org: _selectedOrg!.toLowerCase(),
-      region: 'ap-south-1',
-    );
+    // AppConfig constants are centralized (bucket/region); only org varies per user.
+    AppConfig.configure(_selectedOrg!.toLowerCase());
 
     try {
       final name = _nameController.text.trim().toLowerCase();

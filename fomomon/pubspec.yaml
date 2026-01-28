@@ -35,6 +35,7 @@ dependencies:
   provider: ^6.0.5
   http: ^1.5.0
   path_provider: ^2.1.1
+  flutter_secure_storage: ^9.0.0
   amazon_cognito_identity_dart_2: ^3.6.0
   flutter_compass: ^0.8.0
   sensors_plus: ^5.0.1

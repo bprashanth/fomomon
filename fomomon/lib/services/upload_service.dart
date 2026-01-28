@@ -15,7 +15,6 @@
 
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -26,6 +25,7 @@ import '../services/local_session_storage.dart';
 import '../services/auth_service.dart';
 import '../services/s3_signer_service.dart';
 import '../config/app_config.dart';
+import '../exceptions/auth_exceptions.dart';
 
 class UploadService {
   // UploadService is a singleton
@@ -136,16 +136,22 @@ class UploadService {
     final fullUrl = _joinUrls(bucketRoot, remotePath);
     print("upload_service: constructed fullUrl: $fullUrl");
 
-    if (authService.isUserLoggedIn()) {
-      return await _uploadFileAuth(localPath, fullUrl);
+    // Always try auth path unless in guest mode.
+    // This ensures that if token is missing/expired, getValidToken() will throw
+    // AuthSessionExpiredException, which bubbles up to trigger login redirect.
+    // Guest mode always uses no-auth path to public bucket.
+    if (AppConfig.isGuestMode) {
+      return await _uploadFileNoAuth(localPath, fullUrl);
     }
-    // This will fail if the user is not logged in.
-    return await _uploadFileNoAuth(localPath, fullUrl);
+    return await _uploadFileAuth(localPath, fullUrl);
   }
 
   Future<String> _uploadFileAuth(String localPath, String fullUrl) async {
     try {
       // Get temporary AWS credentials from AuthService
+      // Note: If AuthSessionExpiredException is thrown, we want it to bubble up
+      // to uploadDialWidget so user can be redirected to login. Don't catch it
+      // here.
       final credentials = await authService.getUploadCredentials();
 
       // Parse bucket and key from the full URL
@@ -187,9 +193,18 @@ class UploadService {
         print('upload_service: Response headers: ${response.headers}');
         throw Exception('File upload failed: ${response.statusCode}');
       }
+      // Specifically cath the AuthExceptions thrown by getUploadCredentials()
+      // so we can redirect the user to the login screen.
+    } on AuthSessionExpiredException {
+      rethrow;
+    } on AuthCredentialsException {
+      rethrow;
     } catch (e) {
       print("upload_service: failed auth file upload $e");
-      // Fallback to no-auth upload if authenticated upload fails
+      // Fallback to no-auth upload only for non-auth errors (network, etc.)
+      // Why do this? it's a safety valve. In case there's an issue with the
+      // signing code, or anything related to the auth path, we can fallback to
+      // an attempt at non-auth'd upload.
       return await _uploadFileNoAuth(localPath, fullUrl);
     }
   }
@@ -201,11 +216,14 @@ class UploadService {
   ) async {
     final fullUrl = _joinUrls(bucketRoot, remotePath);
 
-    if (authService.isUserLoggedIn()) {
-      return await _uploadJsonAuth(jsonData, fullUrl);
+    // Always try auth path unless in guest mode.
+    // This ensures that if token is missing/expired, getValidToken() will throw
+    // AuthSessionExpiredException, which bubbles up to trigger login redirect.
+    // Guest mode always uses no-auth path to public bucket.
+    if (AppConfig.isGuestMode) {
+      return await _uploadJsonNoAuth(jsonData, fullUrl);
     }
-    // This will fail if the user is not logged in.
-    return await _uploadJsonNoAuth(jsonData, fullUrl);
+    return await _uploadJsonAuth(jsonData, fullUrl);
   }
 
   Future<String> _uploadJsonAuth(
@@ -214,6 +232,9 @@ class UploadService {
   ) async {
     try {
       // Get temporary AWS credentials from AuthService
+      // Note: If AuthSessionExpiredException is thrown, we want it to bubble up
+      // to uploadDialWidget so user can be redirected to login. Don't catch it
+      // here.
       final credentials = await authService.getUploadCredentials();
 
       // Parse bucket and key from the full URL
@@ -239,15 +260,30 @@ class UploadService {
         body: jsonBytes,
       );
 
+      // Not every 4xx from s3 is a auth failure. It could be a bucket
+      // misconfig, bad key etc. We rely on a specific AuthException to handle
+      // the login screen, and don't show the login screen uselessly in these
+      // other cases.
+      // Moreover, the AuthExceptions are a signaling mechanism between
+      // getUploadCredentials() and the uploadDialWidget. The former is used to
+      // force the UI to show the login screen. Hence in cases where there is a
+      // genuine auth failure, eg invalid username, we could still hit this
+      // codepath and throw the generic exception.
       if (response.statusCode == 200) {
         print('upload_service: Successfully uploaded JSON using presigned URL');
         return fullUrl; // Return the normal (non-signed) URL
       } else {
         throw Exception('JSON upload failed: ${response.statusCode}');
       }
+      // Specifically cath the AuthExceptions thrown by getUploadCredentials()
+      // so we can redirect the user to the login screen.
+    } on AuthSessionExpiredException {
+      rethrow;
+    } on AuthCredentialsException {
+      rethrow;
     } catch (e) {
       print('upload_service: Authenticated JSON upload failed: $e');
-      // Fallback to no-auth upload if authenticated upload fails
+      // Fallback to no-auth upload only for non-auth errors (network, etc.)
       return await _uploadJsonNoAuth(jsonData, fullUrl);
     }
   }
