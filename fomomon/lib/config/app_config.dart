@@ -12,6 +12,11 @@ class AppConfig {
   static String? _org;
   static String? _region;
 
+  // Defaults (centralized)
+  static const String defaultBucketName = 'fomomon';
+  static const String defaultRegion = 'ap-south-1';
+  static const String defaultOrg = 't4gc';
+
   // Guest mode variables
   static const String guestUser = 'Srini';
   static const String guestEmail = 'srini@ncf-india.org';
@@ -28,23 +33,23 @@ class AppConfig {
     'ncf': {'email': 'srini@ncf-india.org', 'name': 'Srini'},
   };
 
-  // Configure is called at login, with the user info fields.
-  static void configure({
-    required String bucketName,
-    String org = 't4gc',
-    String region = 'ap-south-1',
-  }) {
-    _bucketName = bucketName;
+  // Configure is called at login / restore, with the org.
+  // Bucket name and region are intentionally centralized here.
+  static void configure([String org = defaultOrg]) {
+    _bucketName = defaultBucketName;
     _org = org;
-    _region = region;
+    _region = defaultRegion;
   }
 
-  // Configure guest mode
+  // Configure guest mode.
+  // See `guest_sites.dart` header for a detailed explanation of how guest mode
+  // uses a hardcoded public bucket (`guestBucket`) and bypasses Cognito auth
+  // for uploads (no-auth upload path to a public S3 bucket).
   static void configureGuestMode() {
     isGuestMode = true;
-    _bucketName = 'fomomon';
+    _bucketName = defaultBucketName;
     _org = guestOrg;
-    _region = 'ap-south-1';
+    _region = defaultRegion;
   }
 
   // Reset guest mode
@@ -73,6 +78,8 @@ class AppConfig {
     }
     return _region!;
   }
+
+  static String? get org => _org;
 
   static String getResolvedBucketRoot() {
     String bucketRoot = "";

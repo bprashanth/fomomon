@@ -47,3 +47,13 @@ class AuthServiceException extends AuthException {
         originalError,
       );
 }
+
+/// Thrown when the refresh token has expired or is invalid
+/// This requires the user to re-authenticate by logging in again
+class AuthSessionExpiredException extends AuthException {
+  AuthSessionExpiredException([dynamic originalError])
+    : super(
+        'Session expired: Your session has expired. Please log in again.',
+        originalError,
+      );
+}

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/upload_service.dart';
 import '../services/local_session_storage.dart';
 import '../models/site.dart';
+import '../exceptions/auth_exceptions.dart';
+import '../screens/login_screen.dart';
 
 class UploadDialWidget extends StatefulWidget {
   const UploadDialWidget({super.key, required this.sites});
@@ -70,6 +72,34 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       );
       // Refresh after upload completes
       await _loadSessions();
+    } on AuthSessionExpiredException catch (e) {
+      print("upload_dial_widget: Session expired: $e");
+      // Show error message and navigate to login screen
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Your session has expired. Please log in again.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      }
+    } on AuthCredentialsException catch (e) {
+      print("upload_dial_widget: Auth credentials error: $e");
+      // Session might be expired, navigate to login
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Your session has expired. Please log in again.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      }
     } catch (e) {
       print("upload_dial_widget: error: $e");
       setState(() {
