@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fomomon Admin</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <div>
+          <h1>Fomomon Admin</h1>
+          <p>Local admin UI for users and org setup.</p>
+        </div>
+        <div class="actions">
+          <button id="refresh-btn">Refresh</button>
+          <button id="sync-auth-btn">Sync auth_config.json</button>
+        </div>
+      </header>
+
+      <div id="alert" class="alert hidden">
+        <span id="alert-message"></span>
+        <button id="alert-close" class="secondary">Dismiss</button>
+      </div>
+
+      <section class="card">
+        <h2>Organization</h2>
+        <div class="row">
+          <label for="org-select">Org</label>
+          <select id="org-select"></select>
+          <input id="org-input" placeholder="New org (e.g. t4gc)" />
+          <button id="use-org-btn">Use Org</button>
+        </div>
+        <div class="muted" id="org-status"></div>
+      </section>
+
+      <section class="card">
+        <h2>Add User</h2>
+        <div id="password-rules" class="muted"></div>
+        <div id="form-error" class="error"></div>
+        <form id="add-user-form">
+          <div class="grid">
+            <label>
+              Name (Login)
+              <input name="name" placeholder="Srini" required />
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" placeholder="srini@example.com" required />
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" required />
+            </label>
+          </div>
+          <button type="submit">Add User</button>
+          <div class="muted">Login uses the name field. Password is sent only to Cognito.</div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Org Users</h2>
+        <div id="users-list" class="list"></div>
+      </section>
+
+      <section class="card">
+        <h2>Sites</h2>
+        <div class="row">
+          <button id="load-sites-btn">Load</button>
+          <button id="save-sites-btn" class="secondary">Save</button>
+          <button id="add-site-btn" class="secondary">Add Site</button>
+          <label class="upload">
+            Upload sites.json
+            <input id="sites-upload" type="file" accept=".json,application/json" />
+          </label>
+        </div>
+        <label>
+          Bucket Root
+          <input id="bucket-root" placeholder="https://fomomon.s3.amazonaws.com/t4gc/" />
+        </label>
+        <div id="sites-list" class="sites-list"></div>
+      </section>
+
+      <section class="card">
+        <h2>All FOMO Users</h2>
+        <div id="all-users" class="list"></div>
+      </section>
+
+      <footer class="footer" id="status"></footer>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
