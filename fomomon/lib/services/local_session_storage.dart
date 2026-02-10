@@ -118,14 +118,23 @@ class LocalSessionStorage {
     }
   }
 
-  static Future<void> markUploaded(String sessionId) async {
+  /// Mark a session as uploaded and persist its full state, including
+  /// portrait/landscape image URLs.
+  /// Why is this important? 1. Consistency 2. SiteSyncService needs the URLs
+  /// to create ghost images for new sites, and this level of consistency means
+  /// we can just check the persisted site object for the URLs.
+  /// NB: These are raw unsigned urls, the presigned urls are only used
+  /// transiently during uploads.
+  static Future<void> markUploadedWithUrls(CapturedSession session) async {
     final dir = await _getSessionDir();
-    final file = File('${dir.path}/$sessionId.json');
-    if (!await file.exists()) return;
+    final file = File('${dir.path}/${session.sessionId}.json');
 
-    final jsonStr = await file.readAsString();
-    final data = jsonDecode(jsonStr);
+    // Ensure flag is set on the in-memory object as well.
+    session.isUploaded = true;
+
+    final data = session.toJson();
     data['isUploaded'] = true;
+
     await file.writeAsString(jsonEncode(data));
   }
 

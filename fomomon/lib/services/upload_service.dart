@@ -27,6 +27,13 @@ import '../services/s3_signer_service.dart';
 import '../config/app_config.dart';
 import '../exceptions/auth_exceptions.dart';
 
+/// Fine-grained phases within a single session upload.
+enum UploadPhase { portrait, landscape, sessionJson }
+
+/// Number of phases per session (portrait, landscape, sessionJson).
+/// Update this if phases are added/removed in the future.
+const int numPhasesPerSession = 3;
+
 class UploadService {
   // UploadService is a singleton
   UploadService._privateConstructor();
@@ -44,6 +51,8 @@ class UploadService {
   Future<void> uploadAllSessions({
     required List<Site> sites,
     required VoidCallback? onProgress,
+    void Function(CapturedSession session, UploadPhase phase)? onPhaseProgress,
+    void Function(CapturedSession session, Object error)? onSessionError,
   }) async {
     final sessions = await LocalSessionStorage.loadAllSessions();
     final unuploaded = sessions.where((s) => !s.isUploaded);
@@ -52,10 +61,15 @@ class UploadService {
 
     for (final session in unuploaded) {
       try {
-        await _uploadSession(session, sites);
-        await LocalSessionStorage.markUploaded(session.sessionId);
+        await _uploadSession(session, sites, onPhaseProgress);
+        // Persist full session state including uploaded image URLs so that
+        // SiteSyncService can later use them to build ghost images.
+        await LocalSessionStorage.markUploadedWithUrls(session);
         onProgress?.call();
       } catch (e) {
+        if (onSessionError != null) {
+          onSessionError(session, e);
+        }
         final errorMessage =
             "Failed to upload session ${session.sessionId}: $e";
         print("upload_service: $errorMessage");
@@ -74,6 +88,7 @@ class UploadService {
   Future<String> _uploadSession(
     CapturedSession session,
     List<Site> sites,
+    void Function(CapturedSession session, UploadPhase phase)? onPhaseProgress,
   ) async {
     Site? site;
     try {
@@ -100,12 +115,14 @@ class UploadService {
       site.bucketRoot,
       portraitRemotePath,
     );
+    onPhaseProgress?.call(session, UploadPhase.portrait);
 
     final landscapeUrl = await uploadFile(
       session.landscapeImagePath,
       site.bucketRoot,
       landscapeRemotePath,
     );
+    onPhaseProgress?.call(session, UploadPhase.landscape);
 
     session.portraitImageUrl = portraitUrl;
     session.landscapeImageUrl = landscapeUrl;
@@ -116,6 +133,7 @@ class UploadService {
       site.bucketRoot,
       sessionJsonPath,
     );
+    onPhaseProgress?.call(session, UploadPhase.sessionJson);
     print(
       'upload_service: Session URL: $sessionUrl, portrait: $portraitUrl, landscape: $landscapeUrl',
     );

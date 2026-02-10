@@ -18,6 +18,8 @@ import '../widgets/distance_info_panel.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import '../widgets/route_advisory.dart';
 import '../widgets/online_mode_button.dart';
+import '../services/auth_service.dart';
+import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -191,21 +193,53 @@ class _HomeScreenState extends State<HomeScreen> {
 
           return Stack(
             children: [
-              // FOMO top-center
+              // Header row: logout button (left) + *truly* centered FOMO title
               Positioned(
                 top: fomoTop,
                 left: 0,
                 right: 0,
-                child: Center(
-                  child: Text(
-                    'FOMO',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'trump',
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Fixed-width slot for the logout icon on the left
+                    SizedBox(
+                      width: 48,
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.power_settings_new,
+                          color: Colors.white70,
+                          size: 18,
+                        ),
+                        tooltip: 'Logout',
+                        onPressed: () async {
+                          await AuthService.instance.logout();
+                          if (!context.mounted) return;
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(
+                              builder: (_) => const LoginScreen(),
+                            ),
+                            (route) => false,
+                          );
+                        },
+                      ),
                     ),
-                  ),
+                    // Center slot that truly centers FOMO over the radar
+                    const Expanded(
+                      child: Center(
+                        child: Text(
+                          'FOMO',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'trump',
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Symmetric empty slot on the right to balance the icon
+                    const SizedBox(width: 48),
+                  ],
                 ),
               ),
 
