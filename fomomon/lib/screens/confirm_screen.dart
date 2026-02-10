@@ -5,6 +5,10 @@ import '../services/local_image_storage.dart';
 import '../models/confirm_screen_args.dart';
 import '../screens/capture_screen.dart';
 import '../screens/survey_screen.dart';
+import '../models/captured_session.dart';
+import '../models/survey_response.dart';
+import '../services/local_session_storage.dart';
+import '../screens/home_screen.dart';
 
 class ConfirmScreen extends StatefulWidget {
   final ConfirmScreenArgs args;
@@ -144,22 +148,53 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         ),
       );
     } else {
-      // Launch survey
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder:
-              (_) => SurveyScreen(
-                userId: args.userId,
-                site: args.site,
-                portraitImagePath: args.portraitImagePath!,
-                landscapeImagePath: savedPath,
-                timestamp: timestamp,
-                name: args.name,
-                email: args.email,
-                org: args.org,
-              ),
-        ),
-      );
+      // Landscape confirm: either launch survey or, if there are no questions,
+      // skip survey and directly save session + return home.
+      if (args.site.surveyQuestions.isEmpty) {
+        final session = CapturedSession(
+          sessionId: '${args.userId}_${timestamp.toIso8601String()}',
+          siteId: args.site.id,
+          latitude: args.site.lat,
+          longitude: args.site.lng,
+          portraitImagePath: args.portraitImagePath!,
+          landscapeImagePath: savedPath,
+          responses: <SurveyResponse>[],
+          timestamp: timestamp,
+          userId: args.userId,
+        );
+
+        await LocalSessionStorage.saveSession(session);
+        if (!context.mounted) return;
+
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder:
+                (_) => HomeScreen(
+                  name: args.name,
+                  email: args.email,
+                  org: args.org,
+                ),
+          ),
+          (route) => false,
+        );
+      } else {
+        // Launch survey as usual when questions are configured.
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder:
+                (_) => SurveyScreen(
+                  userId: args.userId,
+                  site: args.site,
+                  portraitImagePath: args.portraitImagePath!,
+                  landscapeImagePath: savedPath,
+                  timestamp: timestamp,
+                  name: args.name,
+                  email: args.email,
+                  org: args.org,
+                ),
+          ),
+        );
+      }
     }
   }
 }

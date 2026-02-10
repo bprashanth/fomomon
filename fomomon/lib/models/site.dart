@@ -33,8 +33,9 @@ class Site {
   factory Site.fromJson(Map<String, dynamic> json, String bucketRoot) {
     return Site(
       id: json['id'],
-      lat: json['location']['lat'],
-      lng: json['location']['lng'],
+      // Accept either int or double for lat/lng in JSON
+      lat: (json['location']['lat'] as num).toDouble(),
+      lng: (json['location']['lng'] as num).toDouble(),
       referencePortrait: json['reference_portrait'],
       referenceLandscape: json['reference_landscape'],
       localPortraitPath: json['local_portrait_path'],

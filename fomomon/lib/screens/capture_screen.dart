@@ -44,14 +44,26 @@ class CaptureScreen extends StatefulWidget {
   State<CaptureScreen> createState() => _CaptureScreenState();
 }
 
-class _CaptureScreenState extends State<CaptureScreen> {
+class _CaptureScreenState extends State<CaptureScreen>
+    with SingleTickerProviderStateMixin {
   CameraController? _controller;
   bool _isCameraReady = false;
   double _opacity = 0.2;
+  bool _isCapturing = false;
+  late AnimationController _shutterController;
+  late Animation<double> _shutterScale;
 
   @override
   void initState() {
     super.initState();
+
+    _shutterController = AnimationController(
+      duration: const Duration(milliseconds: 140),
+      vsync: this,
+    );
+    _shutterScale = Tween<double>(begin: 1.0, end: 0.8).animate(
+      CurvedAnimation(parent: _shutterController, curve: Curves.easeOutCubic),
+    );
 
     // Set the orientation based on the captureMode
     if (widget.captureMode == 'portrait') {
@@ -85,6 +97,22 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
       await _controller!.initialize();
 
+      // Ensure flash is always off (no auto-flash in low light).
+      try {
+        await _controller!.setFlashMode(FlashMode.off);
+      } catch (e) {
+        print("Failed to set flash mode off: $e");
+      }
+
+      // Enable continuous autofocus during preview so camera is pre-focused
+      // when user taps, reducing the focus-lock delay during capture.
+      try {
+        await _controller!.setFocusMode(FocusMode.auto);
+      } catch (e) {
+        print("Failed to set focus mode: $e");
+        // Not critical - camera will still work, just might be slower
+      }
+
       if (mounted) {
         setState(() => _isCameraReady = true);
       }
@@ -110,7 +138,14 @@ class _CaptureScreenState extends State<CaptureScreen> {
     final filePath = '${tempDir.path}/$filename';
 
     try {
+      // Shutter feedback: quick scale animation on tap + capturing overlay
+      setState(() => _isCapturing = true);
+      _shutterController.forward().then((_) => _shutterController.reverse());
+
+      final start = DateTime.now();
       final file = await _controller!.takePicture();
+      final elapsed = DateTime.now().difference(start);
+      print("capture_screen: takePicture() took ${elapsed.inMilliseconds} ms");
 
       if (!mounted) return; // Check if still mounted after capture
 
@@ -118,29 +153,36 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
       if (!mounted) return;
 
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder:
-              (_) => ConfirmScreen(
-                args: ConfirmScreenArgs(
-                  landscapeImagePath:
-                      widget.captureMode == 'landscape'
-                          ? filePath
-                          : widget.landscapeImagePath,
-                  portraitImagePath:
-                      widget.captureMode == 'portrait'
-                          ? filePath
-                          : widget.portraitImagePath,
-                  captureMode: widget.captureMode,
-                  site: widget.site,
-                  userId: widget.userId,
-                  name: widget.name,
-                  email: widget.email,
-                  org: widget.org,
-                ),
-              ),
-        ),
-      );
+      Navigator.of(context)
+          .push(
+            MaterialPageRoute(
+              builder:
+                  (_) => ConfirmScreen(
+                    args: ConfirmScreenArgs(
+                      landscapeImagePath:
+                          widget.captureMode == 'landscape'
+                              ? filePath
+                              : widget.landscapeImagePath,
+                      portraitImagePath:
+                          widget.captureMode == 'portrait'
+                              ? filePath
+                              : widget.portraitImagePath,
+                      captureMode: widget.captureMode,
+                      site: widget.site,
+                      userId: widget.userId,
+                      name: widget.name,
+                      email: widget.email,
+                      org: widget.org,
+                    ),
+                  ),
+            ),
+          )
+          .whenComplete(() {
+            // Clear capturing state when user returns from confirm screen
+            if (mounted) {
+              setState(() => _isCapturing = false);
+            }
+          });
     } catch (e) {
       print("Capture failed: $e");
       if (mounted) {
@@ -156,6 +198,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
   @override
   void dispose() {
+    _shutterController.dispose();
     // Properly dispose the camera controller asynchronously
     _controller
         ?.dispose()
@@ -203,6 +246,33 @@ class _CaptureScreenState extends State<CaptureScreen> {
       body: Stack(
         children: [
           Positioned.fill(child: CameraPreview(_controller!)),
+
+          // Top overlay with site id so user knows which site this capture is for
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 16,
+            right: 16,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  widget.site.id,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
 
           if (ghostPath != null)
             Positioned.fill(
@@ -264,20 +334,39 @@ class _CaptureScreenState extends State<CaptureScreen> {
             left: 0,
             right: 0,
             child: Center(
-              child: GestureDetector(
-                onTap: _capturePhoto,
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(width: 4, color: Colors.grey.shade800),
+              child: ScaleTransition(
+                scale: _shutterScale,
+                child: GestureDetector(
+                  onTap: _isCapturing ? null : _capturePhoto,
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(width: 4, color: Colors.grey.shade800),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
+
+          if (_isCapturing)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(0.25),
+                alignment: Alignment.center,
+                child: const Text(
+                  'Capturing...',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

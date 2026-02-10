@@ -90,12 +90,19 @@ class _DistanceInfoPanelState extends State<DistanceInfoPanel> {
                       color: Color(0xFF4FFD73),
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      current.id,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                    // Auto-shrink site name to avoid overflow on long IDs
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          current.id,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
                   ],

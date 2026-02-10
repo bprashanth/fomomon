@@ -151,6 +151,7 @@ Follow existing schema from `examples/sites.json`:
 - Password stored in Cognito (not in JSON files)
 - When creating org, users are added to the shared pool
 - IAM role grants bucket-wide access to all authenticated users
+- Per-org user mapping is stored in `s3://<bucket>/<org>/users.json` (no passwords)
 
 ### Org Creation Flow
 
@@ -166,6 +167,68 @@ Follow existing schema from `examples/sites.json`:
 - If org exists in S3 but lacks `sites.json`, show "Create sites.json" option
 - Allow uploading existing `sites.json` file
 - Validate JSON schema before saving
+
+## Implementation Stages
+
+### Stage 1: Users + Org Mapping (Local Admin UI)
+- FastAPI backend with Cognito integration (based on `hack/cognito/add_users.py`)
+- Create/read `s3://<bucket>/<org>/users.json` to map users to orgs (no passwords)
+- Endpoints: list orgs, list users, add user, delete user, update password
+- Optional `auth_config.json` sync (reads existing pools and writes config)
+
+### Stage 2: Org + sites.json Management
+- List orgs from S3 prefixes
+- Create/edit `sites.json` via UI
+- Upload ghost images (portrait/landscape)
+- Validate schema and write back to S3
+
+### Stage 3: Bucket Permissions
+- Bucket-wide read/write IAM policy for authenticated users
+- Public read toggle for `sites.json` and ghost images
+- Admin UI to display current policy status
+
+## Testing By Stage
+
+### Stage 1: Users + Org Mapping
+1. Start server:
+   ```bash
+   uvicorn admin.backend.main:app --reload --port 8090
+   ```
+2. Open: `http://localhost:8090`
+3. Add a user for an org (e.g., `t4gc`)
+4. Verify in Cognito:
+   ```bash
+   python hack/cognito/get_app_info.py --app-name fomomon --app-type phone
+   aws cognito-idp list-users --user-pool-id <POOL_ID>
+   ```
+5. Verify org mapping:
+   ```bash
+   aws s3 cp s3://fomomon/t4gc/users.json - | jq .
+   ```
+6. (Optional) Sync auth config:
+   ```bash
+   aws s3 cp s3://fomomon/auth_config.json - | jq .
+   ```
+
+### Stage 2: Org + sites.json
+1. Create or edit `sites.json` from the UI
+2. Verify:
+   ```bash
+   aws s3 cp s3://fomomon/t4gc/sites.json - | jq .
+   aws s3 ls s3://fomomon/t4gc/
+   ```
+3. Upload ghost image from UI and verify:
+   ```bash
+   aws s3 ls s3://fomomon/t4gc/<site_id>/
+   ```
+
+### Stage 3: Bucket Permissions
+1. Toggle public read from UI
+2. Verify:
+   ```bash
+   aws s3api get-bucket-policy --bucket fomomon
+   aws s3api get-public-access-block --bucket fomomon
+   ```
 
 ## Testing
 
@@ -284,4 +347,3 @@ aws cognito-idp list-users --user-pool-id <POOL_ID>
 - Site deletion from S3 (currently only sites.json editing)
 - User password reset flow
 - Bulk user import from CSV/JSON
-
