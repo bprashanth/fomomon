@@ -2,6 +2,10 @@
 
 A new Flutter project.
 
+```console 
+flutter run --flavor {alpha,dev}
+```
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
