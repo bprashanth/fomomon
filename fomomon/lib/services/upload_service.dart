@@ -62,7 +62,9 @@ class UploadService {
     for (final session in unuploaded) {
       try {
         await _uploadSession(session, sites, onPhaseProgress);
-        await LocalSessionStorage.markUploaded(session.sessionId);
+        // Persist full session state including uploaded image URLs so that
+        // SiteSyncService can later use them to build ghost images.
+        await LocalSessionStorage.markUploadedWithUrls(session);
         onProgress?.call();
       } catch (e) {
         if (onSessionError != null) {

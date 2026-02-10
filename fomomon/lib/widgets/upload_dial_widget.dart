@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../services/upload_service.dart';
 import '../services/local_session_storage.dart';
+import '../services/site_sync_service.dart';
 import '../models/site.dart';
 import '../exceptions/auth_exceptions.dart';
 import '../screens/login_screen.dart';
@@ -111,7 +112,8 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       }
     });
 
-    // Always refresh sessions first to ensure total is up-to-date
+    // Always refresh sessions first so `total` reflects the current number
+    // of unuploaded sessions before we decide whether there is any work to do.
     await _loadSessions();
 
     // Early return if still no sessions after refresh
@@ -163,7 +165,15 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
           });
         },
       );
-      // Refresh after upload completes
+
+      // After all sessions upload successfully, attempt to sync local sites
+      // into remote sites.json. This runs in the same try/catch so any
+      // AuthSessionExpiredException bubbles up consistently, but internal
+      // sync errors are logged and swallowed inside SiteSyncService.
+      await SiteSyncService.syncSitesToRemote();
+
+      // Refresh after upload + sync completes so the dial reflects the new
+      // number of remaining sessions (usually 0/0 after a full successful run).
       await _loadSessions();
       setState(() {
         _isUploading = false;
