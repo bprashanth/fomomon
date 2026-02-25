@@ -58,6 +58,7 @@ config/
 
 # venv
 venv/
+.venv/
 
 # .git
 .git/

@@ -70,10 +70,18 @@ class S3Service:
         )
 
     def upload_ghost_image(
-        self, org: str, site_id: str, filename: str, content: bytes
+        self,
+        org: str,
+        site_id: str,
+        filename: str,
+        content: bytes,
+        content_type: str | None = None,
     ) -> str:
         key = f"{org}/{site_id}/{filename}"
-        self.s3.put_object(Bucket=self.bucket_name, Key=key, Body=content)
+        extra = {}
+        if content_type:
+            extra["ContentType"] = content_type
+        self.s3.put_object(Bucket=self.bucket_name, Key=key, Body=content, **extra)
         return key
 
     def list_keys(self, prefix: str) -> List[str]:
