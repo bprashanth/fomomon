@@ -1,14 +1,11 @@
 /// s3_signer_service.dart
 /// ----------------------
-/// Handles creating signed S3 URLs for authenticated uploads using AWS Signature V4.
-/// This service takes temporary AWS credentials and creates signed URLs that can be
-/// used to upload files directly to S3 with proper authentication.
+/// Handles creating signed S3 URLs for authenticated uploads and downloads using AWS Signature V4.
+/// Takes temporary AWS credentials and creates presigned URLs for PUT (upload) or GET (download).
 /// See docs/signing.md for more details.
 
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:http/http.dart' as http;
 import 'package:amazon_cognito_identity_dart_2/sig_v4.dart';
 
 import '../config/app_config.dart';
@@ -36,73 +33,104 @@ class S3SignerService {
   }) async {
     try {
       print('s3_signer_service: Creating presigned PUT URL for $s3Key');
-
-      final datetime = SigV4.generateDatetime();
-      final expiration =
-          DateTime.now()
-              .add(Duration(minutes: expiresInMinutes))
-              .toUtc()
-              .millisecondsSinceEpoch ~/
-          1000; // Convert to Unix timestamp
-
-      // Create the S3 endpoint URL
-      final endpoint = 'https://$bucketName.s3.$_region.amazonaws.com';
-      final url = '$endpoint/$s3Key';
-
-      // Create the canonical request for presigned URL
-      final canonicalRequest = _createCanonicalRequestForPresignedUrl(
+      return _createPresignedUrl(
+        bucketName: bucketName,
+        s3Key: s3Key,
+        credentials: credentials,
         method: 'PUT',
-        uri: '/$s3Key',
-        queryParams: {
-          'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
-          'X-Amz-Credential': _buildCredential(
-            credentials['accessKeyId'],
-            datetime,
-          ),
-          'X-Amz-Date': datetime,
-          'X-Amz-Expires': (expiresInMinutes * 60).toString(),
-          'X-Amz-SignedHeaders':
-              contentType != null ? 'host;content-type' : 'host',
-          'X-Amz-Security-Token': credentials['sessionToken'],
-        },
-        headers: {
-          'host': '$bucketName.s3.$_region.amazonaws.com',
-          if (contentType != null) 'content-type': contentType,
-        },
-        payloadHash: 'UNSIGNED-PAYLOAD',
+        contentType: contentType,
+        expiresInMinutes: expiresInMinutes,
       );
-
-      // Create string to sign
-      final stringToSign = _createStringToSignForPresignedUrl(
-        datetime: datetime,
-        credentialScope: _buildCredentialScope(datetime),
-        canonicalRequestHash: _hash(canonicalRequest),
-      );
-
-      // Calculate signature
-      final signature = _calculateSignature(
-        credentials['secretAccessKey'],
-        datetime,
-        stringToSign,
-      );
-
-      // Build the presigned URL
-      final presignedUrl =
-          '$url?'
-          'X-Amz-Algorithm=AWS4-HMAC-SHA256&'
-          'X-Amz-Credential=${Uri.encodeComponent(_buildCredential(credentials['accessKeyId'], datetime))}&'
-          'X-Amz-Date=$datetime&'
-          'X-Amz-Expires=${expiresInMinutes * 60}&'
-          'X-Amz-SignedHeaders=${contentType != null ? 'host;content-type' : 'host'}&'
-          'X-Amz-Security-Token=${Uri.encodeComponent(credentials['sessionToken'])}&'
-          'X-Amz-Signature=$signature';
-
-      print('s3_signer_service: Generated presigned PUT URL');
-      return presignedUrl;
     } catch (e) {
       print('s3_signer_service: Failed to create presigned PUT URL: $e');
       rethrow;
     }
+  }
+
+  /// Create a presigned GET URL for downloading an object from S3
+  ///
+  /// @param bucketName: The S3 bucket name
+  /// @param s3Key: The S3 object key (file path in bucket)
+  /// @param credentials: Temporary AWS credentials from Cognito Identity Pool
+  /// @param expiresInMinutes: How long the presigned URL should be valid (default: 15 minutes)
+  /// @return: Presigned S3 URL that can be used for GET requests
+  Future<String> createPresignedGetUrl({
+    required String bucketName,
+    required String s3Key,
+    required Map<String, dynamic> credentials,
+    int expiresInMinutes = 15,
+  }) async {
+    try {
+      print('s3_signer_service: Creating presigned GET URL for $s3Key');
+      return _createPresignedUrl(
+        bucketName: bucketName,
+        s3Key: s3Key,
+        credentials: credentials,
+        method: 'GET',
+        expiresInMinutes: expiresInMinutes,
+      );
+    } catch (e) {
+      print('s3_signer_service: Failed to create presigned GET URL: $e');
+      rethrow;
+    }
+  }
+
+  /// Shared presigning path for GET and PUT. No duplicated canonical-request or signature logic.
+  String _createPresignedUrl({
+    required String bucketName,
+    required String s3Key,
+    required Map<String, dynamic> credentials,
+    required String method,
+    String? contentType,
+    int expiresInMinutes = 15,
+  }) {
+    final datetime = SigV4.generateDatetime();
+    final host = '$bucketName.s3.$_region.amazonaws.com';
+    final endpoint = 'https://$host';
+    final url = '$endpoint/$s3Key';
+    final signedHeaders = contentType != null ? 'host;content-type' : 'host';
+
+    final canonicalRequest = _createCanonicalRequestForPresignedUrl(
+      method: method,
+      uri: '/$s3Key',
+      queryParams: {
+        'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+        'X-Amz-Credential': _buildCredential(
+          credentials['accessKeyId'],
+          datetime,
+        ),
+        'X-Amz-Date': datetime,
+        'X-Amz-Expires': (expiresInMinutes * 60).toString(),
+        'X-Amz-SignedHeaders': signedHeaders,
+        'X-Amz-Security-Token': credentials['sessionToken'],
+      },
+      headers: {
+        'host': host,
+        if (contentType != null) 'content-type': contentType,
+      },
+      payloadHash: 'UNSIGNED-PAYLOAD',
+    );
+
+    final stringToSign = _createStringToSignForPresignedUrl(
+      datetime: datetime,
+      credentialScope: _buildCredentialScope(datetime),
+      canonicalRequestHash: _hash(canonicalRequest),
+    );
+
+    final signature = _calculateSignature(
+      credentials['secretAccessKey'],
+      datetime,
+      stringToSign,
+    );
+
+    return '$url?'
+        'X-Amz-Algorithm=AWS4-HMAC-SHA256&'
+        'X-Amz-Credential=${Uri.encodeComponent(_buildCredential(credentials['accessKeyId'], datetime))}&'
+        'X-Amz-Date=$datetime&'
+        'X-Amz-Expires=${expiresInMinutes * 60}&'
+        'X-Amz-SignedHeaders=${Uri.encodeComponent(signedHeaders)}&'
+        'X-Amz-Security-Token=${Uri.encodeComponent(credentials['sessionToken'])}&'
+        'X-Amz-Signature=$signature';
   }
 
   /// Create a presigned PUT URL for uploading JSON data to S3

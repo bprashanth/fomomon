@@ -5,6 +5,7 @@ class CapturedSession {
   final String siteId;
   final double latitude;
   final double longitude;
+  final double? heading;
   final String portraitImagePath;
   final String landscapeImagePath;
   final List<SurveyResponse> responses;
@@ -19,6 +20,7 @@ class CapturedSession {
     required this.siteId,
     required this.latitude,
     required this.longitude,
+    this.heading,
     required this.portraitImagePath,
     required this.landscapeImagePath,
     required this.responses,
@@ -34,6 +36,7 @@ class CapturedSession {
     'siteId': siteId,
     'latitude': latitude,
     'longitude': longitude,
+    'heading': heading,
     'portraitImagePath': portraitImagePath,
     'landscapeImagePath': landscapeImagePath,
     'portraitImageUrl': portraitImageUrl,
@@ -50,6 +53,10 @@ class CapturedSession {
       siteId: json['siteId'],
       latitude: json['latitude'],
       longitude: json['longitude'],
+      heading:
+          json['heading'] != null
+              ? (json['heading'] as num).toDouble()
+              : null,
       portraitImagePath: json['portraitImagePath'],
       landscapeImagePath: json['landscapeImagePath'],
       portraitImageUrl: json['portraitImageUrl'] ?? '',

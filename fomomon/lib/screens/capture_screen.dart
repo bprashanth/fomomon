@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 
 import '../models/site.dart';
 import '../models/confirm_screen_args.dart';
 import '../screens/confirm_screen.dart';
+import '../widgets/orientation_dial.dart';
 
 class CaptureScreen extends StatefulWidget {
   final String captureMode;
@@ -52,6 +55,8 @@ class _CaptureScreenState extends State<CaptureScreen>
   bool _isCapturing = false;
   late AnimationController _shutterController;
   late Animation<double> _shutterScale;
+  double? _currentHeading;
+  StreamSubscription<CompassEvent>? _compassSub;
 
   @override
   void initState() {
@@ -76,6 +81,18 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
 
     _initCamera();
+
+    // Start a compass stream only for the first (portrait) capture step, and
+    // only when the site has a reference heading to compare against.
+    if (widget.captureMode == 'portrait' &&
+        widget.site.referenceHeading != null) {
+      _compassSub = FlutterCompass.events?.listen((event) {
+        if (!mounted) return;
+        setState(() {
+          _currentHeading = event.heading;
+        });
+      });
+    }
   }
 
   Future<void> _initCamera() async {
@@ -199,6 +216,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   @override
   void dispose() {
     _shutterController.dispose();
+    _compassSub?.cancel();
     // Properly dispose the camera controller asynchronously
     _controller
         ?.dispose()
@@ -253,23 +271,37 @@ class _CaptureScreenState extends State<CaptureScreen>
             left: 16,
             right: 16,
             child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  widget.site.id,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      widget.site.id,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                ),
+                  if (widget.captureMode == 'portrait' &&
+                      widget.site.referenceHeading != null &&
+                      _currentHeading != null) ...[
+                    const SizedBox(height: 8),
+                    OrientationDial(
+                      referenceHeading: widget.site.referenceHeading!,
+                      currentHeading: _currentHeading,
+                    ),
+                  ],
+                ],
               ),
             ),
           ),

@@ -1,6 +1,6 @@
 class AppConfig {
   // The "local" and "mock" variables used here are only used in testing mode.
-  static bool isTestMode = true;
+  static bool isTestMode = false;
   static bool isGuestMode = false;
   // Path to a local directory, trailing slash is optional
   static String? _localRoot;
@@ -81,6 +81,10 @@ class AppConfig {
 
   static String? get org => _org;
 
+  /// Resolved root URL or local path for the org's data (e.g. https://bucket.s3.region.amazonaws.com/org or file:///path).
+  /// Used for: (1) branching in SiteService (http vs file://) and (2) site_sync_service / cached sites.json
+  /// where the full root string is stored as bucket_root. For HTTP fetches we use bucketName + org/sites.json
+  /// (presigned) rather than root + /sites.json, but both refer to the same S3 object.
   static String getResolvedBucketRoot() {
     String bucketRoot = "";
     if (isTestMode && _localRoot != null) {
