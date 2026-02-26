@@ -4,7 +4,6 @@
 /// when the user is not within range of any existing sites
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import '../models/site.dart';
 import '../services/gps_service.dart';
 import '../services/local_site_storage.dart';
@@ -229,6 +228,24 @@ class _SiteSelectionScreenState extends State<SiteSelectionScreen> {
       if (_isCreatingNewSite) {
         // Create new local site
         final newSiteId = _newSiteController.text.trim();
+
+        // Basic validation: disallow spaces because site IDs are embedded in
+        // URLs/paths. Ask the user to use underscores instead.
+        if (newSiteId.contains(' ')) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Site ID cannot contain spaces. Please use underscores (_) instead.',
+                ),
+              ),
+            );
+          }
+          setState(() {
+            _isLoading = false;
+          });
+          return;
+        }
 
         // Get current GPS position
         final position = await GpsService.getCurrentPosition();

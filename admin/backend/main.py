@@ -2,23 +2,30 @@ import json
 import os
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import re
+from dotenv import load_dotenv
+import boto3
+from botocore.exceptions import ClientError
 
 from .cognito_service import CognitoService
 from .s3_service import S3Service
 
 
-APP_NAME = os.getenv("APP_NAME", "fomomon")
-APP_TYPE = os.getenv("APP_TYPE", "phone")
-AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
-BUCKET_NAME = os.getenv("FOMOMON_BUCKET", "fomomon")
-AUTO_CREATE_POOLS = os.getenv("AUTO_CREATE_POOLS", "false").lower() == "true"
+ADMIN_ROOT = Path(__file__).resolve().parents[1]
+FRONTEND_DIR = ADMIN_ROOT / "frontend"
+ENV_PATH = ADMIN_ROOT / ".env"
+load_dotenv(ENV_PATH)
+
+AWS_REGION = os.getenv("AWS_REGION")
+BUCKET_NAME = os.getenv("FOMOMON_BUCKET")
+AUTH_CONFIG_KEY = os.getenv("AUTH_CONFIG_KEY") or "auth_config.json"
 
 app = FastAPI(title="Fomomon Admin", version="0.1.0")
 
@@ -31,13 +38,19 @@ app.add_middleware(
 )
 
 cognito = CognitoService(
-    app_name=APP_NAME,
-    app_type=APP_TYPE,
-    region=AWS_REGION,
-    bucket_name=BUCKET_NAME,
+    app_name="",
+    app_type="",
+    region=AWS_REGION or "",
+    bucket_name=BUCKET_NAME or "",
 )
 
-s3 = S3Service(bucket_name=BUCKET_NAME, region=AWS_REGION)
+s3 = S3Service(bucket_name=BUCKET_NAME or "", region=AWS_REGION or "")
+
+
+def _bucket_root_template() -> str:
+    if not BUCKET_NAME:
+        return "https://<bucket>.s3.amazonaws.com/{org}/"
+    return f"https://{BUCKET_NAME}.s3.amazonaws.com/{{org}}/"
 
 
 class UserInput(BaseModel):
@@ -49,13 +62,6 @@ class UserInput(BaseModel):
 
 class PasswordInput(BaseModel):
     password: str
-
-
-class AuthConfigOutput(BaseModel):
-    userPoolId: str
-    clientId: str
-    identityPoolId: str
-    region: str
 
 
 class PasswordPolicyOutput(BaseModel):
@@ -89,29 +95,335 @@ def _sanitize_filename(name: str) -> str:
     name = re.sub(r"-{2,}", "-", name).strip("-")
     return name or "image"
 
-def _get_app_info_or_create():
-    info = cognito.get_app_info()
-    if info is None:
-        if not AUTO_CREATE_POOLS:
-            raise HTTPException(
-                status_code=400,
-                detail="Cognito pools not found. Set AUTO_CREATE_POOLS=true to create.",
-            )
-        info = cognito.ensure_app_setup(write_access=True)
-    return info
+def _missing_env_vars() -> List[str]:
+    required = ["AWS_REGION", "FOMOMON_BUCKET"]
+    return [name for name in required if not os.getenv(name)]
+
+
+def _aws_credentials_ok(region: str) -> Optional[str]:
+    try:
+        boto3.client("sts", region_name=region).get_caller_identity()
+    except Exception:
+        return (
+            "AWS credentials not available. Log in with the AWS CLI "
+            "(aws configure or aws sso login), or provide environment credentials."
+        )
+    return None
+
+
+def _bucket_access_ok(bucket_name: str, region: str) -> Optional[str]:
+    try:
+        boto3.client("s3", region_name=region).head_bucket(Bucket=bucket_name)
+    except Exception:
+        return (
+            f"AWS credentials do not have access to bucket {bucket_name}. "
+            "Ensure the admin principal has read/write access."
+        )
+    return None
+
+
+def _get_auth_config_from_bucket() -> Optional[Dict[str, Any]]:
+    try:
+        resp = s3.s3.get_object(Bucket=BUCKET_NAME, Key=AUTH_CONFIG_KEY)
+        body = resp["Body"].read().decode("utf-8")
+        return json.loads(body)
+    except s3.s3.exceptions.NoSuchKey:
+        return None
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+            return None
+        raise
+
+
+def _setup_instructions() -> Dict[str, Any]:
+    bucket = BUCKET_NAME or "<bucket>"
+    region = AWS_REGION or "<region>"
+    key = AUTH_CONFIG_KEY
+    create_bucket_cmd = (
+        f"aws s3api create-bucket --bucket {bucket} --region {region} "
+        f"--create-bucket-configuration LocationConstraint={region}"
+    )
+    upload_cmd = (
+        f"aws s3api put-object --bucket {bucket} --key {key} "
+        f"--body auth_config.json --content-type application/json"
+    )
+    return {
+        "message": "auth_config.json is missing or the bucket is not accessible.",
+        "steps": [
+            "Ensure the S3 bucket exists and your AWS credentials can access it.",
+            "Create auth_config.json with the correct Cognito IDs.",
+            "Upload auth_config.json to the bucket.",
+        ],
+        "example_auth_config": {
+            "userPoolId": "<user_pool_id>",
+            "clientId": "<app_client_id>",
+            "identityPoolId": "<identity_pool_id>",
+            "region": region,
+        },
+        "commands": [
+            create_bucket_cmd,
+            upload_cmd,
+        ],
+    }
+
+
+def _require_auth_config() -> Dict[str, Any]:
+    config = _get_auth_config_from_bucket()
+    if not config:
+        raise HTTPException(status_code=400, detail="auth_config.json not found.")
+    required = ["userPoolId", "clientId", "identityPoolId", "region"]
+    missing = [key for key in required if not config.get(key)]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"auth_config.json is missing required fields: {', '.join(missing)}.",
+        )
+    return config
+
+
+def _user_pool_id() -> str:
+    config = _require_auth_config()
+    return config["userPoolId"]
+
+
+def _identity_pool_role_arn(identity_pool_id: str, region: str) -> str:
+    resp = boto3.client("cognito-identity", region_name=region).get_identity_pool_roles(
+        IdentityPoolId=identity_pool_id
+    )
+    role_arn = resp.get("Roles", {}).get("authenticated", "")
+    if not role_arn:
+        raise HTTPException(
+            status_code=400,
+            detail="Identity pool does not have an authenticated role configured.",
+        )
+    return role_arn
+
+
+def _normalize_actions(actions) -> List[str]:
+    if isinstance(actions, list):
+        return actions
+    if isinstance(actions, str):
+        return [actions]
+    return []
+
+
+def _normalize_resources(resources) -> List[str]:
+    if isinstance(resources, list):
+        return resources
+    if isinstance(resources, str):
+        return [resources]
+    return []
+
+
+def _is_public_principal(principal) -> bool:
+    if principal == "*":
+        return True
+    if isinstance(principal, dict):
+        aws = principal.get("AWS")
+        if aws == "*":
+            return True
+        if isinstance(aws, list) and "*" in aws:
+            return True
+    return False
+
+
+def _action_matches(actions: List[str], targets: List[str]) -> bool:
+    for action in actions:
+        if action in ("*", "s3:*"):
+            return True
+        if action.endswith("*"):
+            prefix = action[:-1]
+            if any(t.startswith(prefix) for t in targets):
+                return True
+        if action in targets:
+            return True
+    return False
+
+
+def _get_bucket_policy(bucket_name: str, region: str) -> Optional[Dict[str, Any]]:
+    s3_client = boto3.client("s3", region_name=region)
+    try:
+        resp = s3_client.get_bucket_policy(Bucket=bucket_name)
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "NoSuchBucketPolicy":
+            return None
+        raise
+    return json.loads(resp["Policy"])
+
+
+def _bucket_policy_plan(bucket_name: str, region: str) -> Dict[str, Any]:
+    public_actions = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
+    bucket_arn = f"arn:aws:s3:::{bucket_name}"
+    auth_config_arn = f"{bucket_arn}/{AUTH_CONFIG_KEY}"
+
+    policy = _get_bucket_policy(bucket_name, region) or {"Version": "2012-10-17", "Statement": []}
+    statements = policy.get("Statement", [])
+    if isinstance(statements, dict):
+        statements = [statements]
+
+    new_statements = []
+    removed_public = False
+    public_access_detected = False
+    deny_public_detected = False
+
+    for stmt in statements:
+        effect = stmt.get("Effect")
+        principal = stmt.get("Principal")
+        actions = _normalize_actions(stmt.get("Action"))
+        resources = _normalize_resources(stmt.get("Resource"))
+
+        if effect == "Deny" and _is_public_principal(principal):
+            if _action_matches(actions, public_actions):
+                if any(r.startswith(bucket_arn) for r in resources):
+                    deny_public_detected = True
+
+        if effect == "Allow" and _is_public_principal(principal):
+            if _action_matches(actions, public_actions):
+                public_access_detected = True
+                is_auth_config_only = (
+                    set(actions) == {"s3:GetObject"}
+                    and set(resources) == {auth_config_arn}
+                )
+                if not is_auth_config_only:
+                    removed_public = True
+                    continue
+
+        new_statements.append(stmt)
+
+    allow_public_auth = {
+        "Sid": "AllowPublicReadAuthConfig",
+        "Effect": "Allow",
+        "Principal": "*",
+        "Action": "s3:GetObject",
+        "Resource": auth_config_arn,
+    }
+
+    if not any(
+        stmt.get("Effect") == "Allow"
+        and _is_public_principal(stmt.get("Principal"))
+        and "s3:GetObject" in _normalize_actions(stmt.get("Action"))
+        and auth_config_arn in _normalize_resources(stmt.get("Resource"))
+        for stmt in new_statements
+    ):
+        new_statements.append(allow_public_auth)
+
+    new_policy = {"Version": policy.get("Version", "2012-10-17"), "Statement": new_statements}
+    changes = removed_public or new_policy != policy
+
+    return {
+        "current_policy": policy,
+        "new_policy": new_policy,
+        "changes": changes,
+        "public_access_detected": public_access_detected,
+        "deny_public_detected": deny_public_detected,
+    }
+
+
+def _apply_bucket_policy(bucket_name: str, region: str) -> Dict[str, Any]:
+    plan = _bucket_policy_plan(bucket_name, region)
+    if plan["changes"]:
+        boto3.client("s3", region_name=region).put_bucket_policy(
+            Bucket=bucket_name,
+            Policy=json.dumps(plan["new_policy"]),
+        )
+    return plan
+
+
+def _role_policy_document(bucket_name: str) -> Dict[str, Any]:
+    bucket_arn = f"arn:aws:s3:::{bucket_name}"
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": [bucket_arn],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:PutObject"],
+                "Resource": [f"{bucket_arn}/*"],
+            },
+        ],
+    }
+
+
+def _policy_equal(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+
+
+def _get_role_name(role_arn: str) -> str:
+    if role_arn:
+        return role_arn.split("/")[-1]
+    return ""
+
+
+def _role_policy_plan(role_name: str, bucket_name: str, region: str) -> Dict[str, Any]:
+    iam = boto3.client("iam", region_name=region)
+    desired = _role_policy_document(bucket_name)
+    policy_name = f"{role_name}-bucket-access"
+
+    try:
+        resp = iam.get_role_policy(RoleName=role_name, PolicyName=policy_name)
+        current = resp.get("PolicyDocument", {})
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "NoSuchEntity":
+            current = None
+        else:
+            raise
+
+    would_change = current is None or not _policy_equal(current, desired)
+    return {"policy_name": policy_name, "desired": desired, "current": current, "changes": would_change}
+
+
+def _apply_role_policy(role_name: str, bucket_name: str, region: str) -> Dict[str, Any]:
+    plan = _role_policy_plan(role_name, bucket_name, region)
+    if plan["changes"]:
+        boto3.client("iam", region_name=region).put_role_policy(
+            RoleName=role_name,
+            PolicyName=plan["policy_name"],
+            PolicyDocument=json.dumps(plan["desired"]),
+        )
+    return plan
 
 
 @app.get("/")
 def index():
-    return FileResponse("admin/frontend/index.html")
+    return FileResponse(str(FRONTEND_DIR / "index.html"))
 
 
 @app.get("/org.html")
 def org_page():
-    return FileResponse("admin/frontend/org.html")
+    return FileResponse(str(FRONTEND_DIR / "org.html"))
 
 
-app.mount("/static", StaticFiles(directory="admin/frontend"), name="static")
+app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+
+@app.get("/api/health")
+def health():
+    missing = _missing_env_vars()
+    if missing:
+        return {
+            "ok": False,
+            "message": f"Missing required environment variables: {', '.join(missing)}.",
+        }
+    cred_msg = _aws_credentials_ok(AWS_REGION or "")
+    if cred_msg:
+        return {"ok": False, "message": cred_msg}
+    bucket_msg = _bucket_access_ok(BUCKET_NAME or "", AWS_REGION or "")
+    if bucket_msg:
+        return {"ok": False, "message": bucket_msg}
+    return {"ok": True}
+
+
+@app.get("/api/config")
+def config():
+    return {
+        "bucketName": BUCKET_NAME,
+        "bucketRootTemplate": _bucket_root_template(),
+        "region": AWS_REGION,
+    }
 
 
 @app.get("/api/orgs")
@@ -121,15 +433,13 @@ def list_orgs():
 
 @app.get("/api/users")
 def list_all_users():
-    info = _get_app_info_or_create()
-    users = cognito.list_users(info.user_pool_id)
+    users = cognito.list_users(_user_pool_id())
     return {"users": users}
 
 
 @app.get("/api/orgs/{org}/users")
 def list_org_users(org: str):
-    info = _get_app_info_or_create()
-    all_users = cognito.list_users(info.user_pool_id)
+    all_users = cognito.list_users(_user_pool_id())
     users_json = s3.get_users_json(org)
     if not users_json:
         return {"org": org, "users": []}
@@ -154,7 +464,7 @@ def add_user(org: str, payload: UserInput):
     if payload.org.lower() != org.lower():
         raise HTTPException(status_code=400, detail="Org mismatch")
 
-    info = _get_app_info_or_create()
+    user_pool_id = _user_pool_id()
 
     s3.ensure_org_prefix(org)
 
@@ -162,7 +472,7 @@ def add_user(org: str, payload: UserInput):
     created = True
     try:
         cognito.add_user(
-            info.user_pool_id,
+            user_pool_id,
             username=username,
             name=payload.name,
             email=payload.email,
@@ -170,7 +480,7 @@ def add_user(org: str, payload: UserInput):
         )
     except cognito.cognito_idp.exceptions.UsernameExistsException:
         created = False
-        cognito.update_password(info.user_pool_id, username, payload.password)
+        cognito.update_password(user_pool_id, username, payload.password)
     except Exception as e:
         if hasattr(e, "response"):
             code = e.response.get("Error", {}).get("Code", "")
@@ -208,8 +518,7 @@ def add_user(org: str, payload: UserInput):
 
 @app.delete("/api/orgs/{org}/users/{username}")
 def delete_user(org: str, username: str):
-    info = _get_app_info_or_create()
-    cognito.delete_user(info.user_pool_id, username)
+    cognito.delete_user(_user_pool_id(), username)
 
     users_json = s3.get_users_json(org)
     if users_json:
@@ -226,8 +535,7 @@ def delete_user(org: str, username: str):
 
 @app.put("/api/orgs/{org}/users/{username}/password")
 def update_password(org: str, username: str, payload: PasswordInput):
-    info = _get_app_info_or_create()
-    cognito.update_password(info.user_pool_id, username, payload.password)
+    cognito.update_password(_user_pool_id(), username, payload.password)
     users_json = s3.get_users_json(org)
     if users_json:
         for u in users_json.get("users", []):
@@ -240,43 +548,58 @@ def update_password(org: str, username: str, payload: PasswordInput):
 
 @app.get("/api/auth_config")
 def get_auth_config():
-    info = cognito.get_app_info()
-    if info is None:
-        raise HTTPException(status_code=404, detail="Cognito app not found")
-    return AuthConfigOutput(
-        userPoolId=info.user_pool_id,
-        clientId=info.client_id,
-        identityPoolId=info.identity_pool_id,
-        region=AWS_REGION,
-    )
+    existing = _get_auth_config_from_bucket()
+    if existing:
+        return existing
+    raise HTTPException(status_code=404, detail="auth_config.json not found in bucket.")
 
 
 @app.post("/api/auth_config/sync")
 def sync_auth_config():
-    info = cognito.get_app_info()
-    if info is None:
-        raise HTTPException(status_code=404, detail="Cognito app not found")
+    missing = _missing_env_vars()
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required environment variables: {', '.join(missing)}.",
+        )
+    cred_msg = _aws_credentials_ok(AWS_REGION or "")
+    if cred_msg:
+        raise HTTPException(status_code=400, detail=cred_msg)
+    bucket_msg = _bucket_access_ok(BUCKET_NAME or "", AWS_REGION or "")
+    if bucket_msg:
+        return JSONResponse(status_code=400, content=_setup_instructions())
 
-    auth_config = {
-        "userPoolId": info.user_pool_id,
-        "clientId": info.client_id,
-        "identityPoolId": info.identity_pool_id,
-        "region": AWS_REGION,
+    auth_config = _get_auth_config_from_bucket()
+    if not auth_config:
+        return JSONResponse(status_code=400, content=_setup_instructions())
+
+    required = ["identityPoolId"]
+    missing_fields = [key for key in required if not auth_config.get(key)]
+    if missing_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"auth_config.json missing fields: {', '.join(missing_fields)}.",
+        )
+
+    identity_pool_id = auth_config["identityPoolId"]
+    role_arn = _identity_pool_role_arn(identity_pool_id, AWS_REGION or "")
+    role_name = _get_role_name(role_arn)
+
+    bucket_plan = _apply_bucket_policy(BUCKET_NAME or "", AWS_REGION or "")
+    role_plan = _apply_role_policy(role_name, BUCKET_NAME or "", AWS_REGION or "")
+
+    return {
+        "ok": True,
+        "bucketPolicyChanged": bucket_plan["changes"],
+        "rolePolicyChanged": role_plan["changes"],
+        "roleName": role_name,
+        "publicAccessDetected": bucket_plan["public_access_detected"],
     }
-    key = "auth_config.json"
-    s3.s3.put_object(
-        Bucket=BUCKET_NAME,
-        Key=key,
-        Body=json.dumps(auth_config, indent=2).encode("utf-8"),
-        ContentType="application/json",
-    )
-    return {"ok": True, "auth_config": auth_config}
 
 
 @app.get("/api/password_policy")
 def get_password_policy():
-    info = _get_app_info_or_create()
-    policy = cognito.get_password_policy(info.user_pool_id)
+    policy = cognito.get_password_policy(_user_pool_id())
     return PasswordPolicyOutput(
         minimumLength=policy.get("MinimumLength", 0),
         requireUppercase=policy.get("RequireUppercase", False),
@@ -341,9 +664,23 @@ def upload_ghost_image(
         if key not in existing:
             break
         index += 1
-    s3.upload_ghost_image(org, site_id, candidate, content)
+    s3.upload_ghost_image(org, site_id, candidate, content, content_type=image.content_type)
     return {
         "ok": True,
         "key": key,
         "relative_path": f"{site_id}/{candidate}",
     }
+
+
+@app.get("/api/s3")
+def presign_s3(key: str):
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
+    if key.startswith("/"):
+        key = key[1:]
+    url = s3.s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": BUCKET_NAME, "Key": key},
+        ExpiresIn=3600,
+    )
+    return RedirectResponse(url)

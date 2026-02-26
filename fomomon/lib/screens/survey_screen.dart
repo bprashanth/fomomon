@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/heading_service.dart';
 import '../models/site.dart';
 import '../models/survey_response.dart';
 import '../models/captured_session.dart';
@@ -105,11 +106,14 @@ class _SurveyScreenState extends State<SurveyScreen> {
             .map((e) => SurveyResponse(questionId: e.key, answer: e.value))
             .toList();
 
+    final heading = await HeadingService.getCurrentHeadingOnce();
+
     final session = CapturedSession(
       sessionId: '${widget.userId}_${widget.timestamp.toIso8601String()}',
       siteId: widget.site.id,
       latitude: widget.site.lat,
       longitude: widget.site.lng,
+      heading: heading,
       portraitImagePath: widget.portraitImagePath,
       landscapeImagePath: widget.landscapeImagePath,
       timestamp: widget.timestamp,

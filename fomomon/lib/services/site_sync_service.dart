@@ -15,6 +15,8 @@ import '../services/upload_service.dart';
 /// Syncs locally created sites (`local_sites.json`) into the remote `sites.json`
 /// in S3 after uploads complete. This ensures that newly created sites become
 /// part of the canonical sites list and are visible on other devices.
+/// Also updates reference_heading on sites (existing and new) from the first
+/// uploaded session per site, so orientation is synced back to sites.json.
 class SiteSyncService {
   /// Main entry point to sync local sites to remote sites.json.
   ///
@@ -69,6 +71,40 @@ class SiteSyncService {
 
       final newRemoteSites = <Site>[];
 
+      // --- Existing sites (already in sites.json) ---
+      // remoteSites = sites loaded from cached sites.json (the canonical list).
+      // For each such site we check if this device has any uploaded session for
+      // that site ID. If we do, we update that site's reference_heading from
+      // the first uploaded session (same "first session" rule as ghost images),
+      // then re-upload sites.json so orientation is synced.
+      final updatedRemoteSites = <Site>[];
+      for (final remote in remoteSites) {
+        final session = _findFirstUploadedSessionForSite(
+          remote.id,
+          uploadedSessions,
+        );
+        if (session != null && session.heading != null) {
+          updatedRemoteSites.add(
+            Site(
+              id: remote.id,
+              lat: remote.lat,
+              lng: remote.lng,
+              referencePortrait: remote.referencePortrait,
+              referenceLandscape: remote.referenceLandscape,
+              referenceHeading: session.heading,
+              bucketRoot: remote.bucketRoot,
+              surveyQuestions: remote.surveyQuestions,
+              isLocalSite: remote.isLocalSite,
+            ),
+          );
+        } else {
+          updatedRemoteSites.add(remote);
+        }
+      }
+
+      // --- New local sites (added on this phone, not yet in sites.json) ---
+      // For each we build a Site entry using the first uploaded session for
+      // ghost images; reference_heading is set here from that same session.
       for (final local in newLocalSites) {
         final session = _findFirstUploadedSessionForSite(
           local.id,
@@ -103,6 +139,7 @@ class SiteSyncService {
           lng: local.lng,
           referencePortrait: portraitRel,
           referenceLandscape: landscapeRel,
+          referenceHeading: session.heading, // first uploaded session sets ref heading for new sites
           bucketRoot: bucketRoot,
           surveyQuestions: local.surveyQuestions,
           isLocalSite: false,
@@ -116,7 +153,7 @@ class SiteSyncService {
         return;
       }
 
-      final allSites = <Site>[...remoteSites, ...newRemoteSites];
+      final allSites = <Site>[...updatedRemoteSites, ...newRemoteSites];
 
       final updatedData = {
         'bucket_root': bucketRoot,

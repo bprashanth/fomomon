@@ -17,11 +17,11 @@ const addSiteBtn = document.getElementById('add-site-btn');
 const sitesUpload = document.getElementById('sites-upload');
 const sitesList = document.getElementById('sites-list');
 const bucketRootInput = document.getElementById('bucket-root');
-const refreshBtn = document.getElementById('refresh-btn');
 const syncAuthBtn = document.getElementById('sync-auth-btn');
 
 let currentOrg = '';
 let sitesData = null;
+let config = { bucketRootTemplate: 'https://<bucket>.s3.amazonaws.com/{org}/' };
 
 function setStatus(message, isError = false) {
   statusBar.textContent = message;
@@ -54,7 +54,43 @@ async function api(path, options = {}) {
   return resp.json();
 }
 
-alertClose.addEventListener('click', hideAlert);
+alertClose?.addEventListener('click', hideAlert);
+
+function bucketRootForOrg(org) {
+  const template = config.bucketRootTemplate || 'https://<bucket>.s3.amazonaws.com/{org}/';
+  return template.replace('{org}', org || '');
+}
+
+function presignedUrlForKey(key) {
+  const encoded = encodeURIComponent(key || '');
+  return `/api/s3?key=${encoded}`;
+}
+
+async function loadHealth() {
+  try {
+    const data = await api('/api/health');
+    if (!data.ok) {
+      setStatus('Prerequisites missing', true);
+      showAlert(data.message || 'Server prerequisites not met. Check AWS credentials.', 'error');
+      return false;
+    }
+    return true;
+  } catch (err) {
+    setStatus('Server not ready', true);
+    showAlert(err.message || 'Server not ready. Check backend logs.', 'error');
+    return false;
+  }
+}
+
+async function loadConfig() {
+  try {
+    const data = await api('/api/config');
+    config = data || config;
+    bucketRootInput.placeholder = bucketRootForOrg('<org>');
+  } catch (err) {
+    showAlert(err.message || 'Failed to load server config.', 'error');
+  }
+}
 async function loadPasswordPolicy() {
   const data = await api('/api/password_policy');
   const rules = [];
@@ -170,7 +206,7 @@ async function loadSites() {
   const data = await api(`/api/orgs/${encodeURIComponent(currentOrg)}/sites`);
   if (!data.sites_json) {
     sitesData = {
-      bucket_root: `https://fomomon.s3.amazonaws.com/${currentOrg}/`,
+      bucket_root: bucketRootForOrg(currentOrg),
       sites: [],
     };
     bucketRootInput.value = sitesData.bucket_root;
@@ -179,7 +215,7 @@ async function loadSites() {
     return;
   }
   sitesData = data.sites_json;
-  bucketRootInput.value = sitesData.bucket_root || `https://fomomon.s3.amazonaws.com/${currentOrg}/`;
+  bucketRootInput.value = sitesData.bucket_root || bucketRootForOrg(currentOrg);
   renderSites();
   showAlert(`Loaded sites.json for ${currentOrg}.`);
 }
@@ -212,10 +248,10 @@ function renderSites() {
     card.className = 'site-card';
     const bucketRoot = (bucketRootInput.value || '').replace(/\/+$/, '') + '/';
     const portraitUrl = site.reference_portrait
-      ? `${bucketRoot}${site.reference_portrait}`
+      ? presignedUrlForKey(`${currentOrg}/${site.reference_portrait}`)
       : '';
     const landscapeUrl = site.reference_landscape
-      ? `${bucketRoot}${site.reference_landscape}`
+      ? presignedUrlForKey(`${currentOrg}/${site.reference_landscape}`)
       : '';
 
     card.innerHTML = `
@@ -340,9 +376,9 @@ function renderSites() {
   });
 }
 
-loadSitesBtn.addEventListener('click', () => loadSites());
-saveSitesBtn.addEventListener('click', () => saveSites());
-addSiteBtn.addEventListener('click', () => {
+loadSitesBtn?.addEventListener('click', () => loadSites());
+saveSitesBtn?.addEventListener('click', () => saveSites());
+addSiteBtn?.addEventListener('click', () => {
   if (!sitesData) {
     sitesData = { bucket_root: bucketRootInput.value || '', sites: [] };
   }
@@ -357,7 +393,7 @@ addSiteBtn.addEventListener('click', () => {
   renderSites();
 });
 
-sitesUpload.addEventListener('change', async () => {
+sitesUpload?.addEventListener('change', async () => {
   if (!currentOrg) {
     showAlert('Select an org first.', 'error');
     return;
@@ -395,7 +431,7 @@ async function refreshAll() {
   }
 }
 
-useOrgBtn.addEventListener('click', async () => {
+useOrgBtn?.addEventListener('click', async () => {
   const selected = orgInput.value.trim() || orgSelect.value;
   if (!selected) return;
   currentOrg = selected;
@@ -403,18 +439,39 @@ useOrgBtn.addEventListener('click', async () => {
   await refreshAll();
 });
 
-refreshBtn.addEventListener('click', refreshAll);
 
-syncAuthBtn.addEventListener('click', async () => {
+syncAuthBtn?.addEventListener('click', async () => {
   try {
-    await api('/api/auth_config/sync', { method: 'POST' });
-    showAlert('auth_config.json synced.');
+    const resp = await fetch('/api/auth_config/sync', { method: 'POST' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      if (data && data.commands && data.example_auth_config) {
+        const lines = [
+          data.message || 'Setup required.',
+          '',
+          'Steps:',
+          ...(data.steps || []).map((s) => `- ${s}`),
+          '',
+          'Commands:',
+          ...(data.commands || []),
+          '',
+          'Example auth_config.json:',
+          JSON.stringify(data.example_auth_config, null, 2),
+        ];
+        alert(lines.join('\\n'));
+        return;
+      }
+      throw new Error(data.detail || 'Unable to sync auth_config.json.');
+    }
+    const bucketStatus = data.bucketPolicyChanged ? 'changed' : 'no change';
+    const roleStatus = data.rolePolicyChanged ? 'changed' : 'no change';
+    showAlert(`Permissions enforced. Bucket policy: ${bucketStatus}. Role policy: ${roleStatus}.`);
   } catch (err) {
     showAlert(err.message, 'error');
   }
 });
 
-addUserForm.addEventListener('submit', async (event) => {
+addUserForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
   setFormError('');
   if (!currentOrg) {
@@ -449,4 +506,10 @@ addUserForm.addEventListener('submit', async (event) => {
   }
 });
 
-refreshAll();
+(async () => {
+  const healthy = await loadHealth();
+  await loadConfig();
+  if (healthy) {
+    await refreshAll();
+  }
+})();

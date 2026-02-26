@@ -13,13 +13,13 @@
 
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
 import 'package:amazon_cognito_identity_dart_2/cognito.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../models/auth_config.dart';
 import '../config/app_config.dart';
 import '../exceptions/auth_exceptions.dart';
+import 'fetch_service.dart';
 
 /// Authentication Service
 ///
@@ -116,7 +116,7 @@ class AuthService {
           'https://$bucketName.s3.$region.amazonaws.com/auth_config.json';
 
       print('auth_service: Fetching auth config from $configUrl');
-      final response = await http.get(Uri.parse(configUrl));
+      final response = await FetchService.instance.fetchUnauthenticated(configUrl);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);

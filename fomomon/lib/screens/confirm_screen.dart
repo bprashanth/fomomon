@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/heading_service.dart';
 import '../services/local_image_storage.dart';
 import '../models/confirm_screen_args.dart';
 import '../screens/capture_screen.dart';
@@ -151,11 +152,14 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       // Landscape confirm: either launch survey or, if there are no questions,
       // skip survey and directly save session + return home.
       if (args.site.surveyQuestions.isEmpty) {
+        final heading = await HeadingService.getCurrentHeadingOnce();
+
         final session = CapturedSession(
           sessionId: '${args.userId}_${timestamp.toIso8601String()}',
           siteId: args.site.id,
           latitude: args.site.lat,
           longitude: args.site.lng,
+          heading: heading,
           portraitImagePath: args.portraitImagePath!,
           landscapeImagePath: savedPath,
           responses: <SurveyResponse>[],

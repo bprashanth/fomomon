@@ -15,6 +15,7 @@ import '../data/guest_sites.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../services/local_site_storage.dart';
+import 'fetch_service.dart';
 import 'package:flutter/services.dart';
 
 class SiteService {
@@ -23,6 +24,18 @@ class SiteService {
     final cacheDir = Directory('${dir.path}/cache');
     if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
     return cacheDir;
+  }
+
+  /// Returns true if [url] points at this app's S3 bucket (same bucket + region as AppConfig).
+  /// Used to decide whether to fetch via presigned GET (app bucket) or plain HTTP (e.g. guest bucket).
+  ///
+  /// Example: true for https://fomomon.s3.ap-south-1.amazonaws.com/t4gc/sites.json
+  ///          false for https://fomomonguest.s3.ap-south-1.amazonaws.com/...
+  static bool _isAppBucketUrl(String url) {
+    final host = Uri.parse(url).host;
+    return host ==
+            '${AppConfig.bucketName}.s3.${AppConfig.region}.amazonaws.com' ||
+        host == '${AppConfig.bucketName}.s3.amazonaws.com';
   }
 
   static Future<List<Site>> fetchSitesAndPrefetchImages({
@@ -36,9 +49,6 @@ class SiteService {
       return _mergeSites(guestSites, localSites);
     }
 
-    final root = AppConfig.getResolvedBucketRoot();
-    final path = "$root/sites.json";
-
     // If async mode is enabled, try to return cached data immediately
     if (async) {
       try {
@@ -50,8 +60,8 @@ class SiteService {
             "Async mode: Returning ${mergedSites.length} sites (${cachedSites.length} remote + ${localSites.length} local) immediately",
           );
 
-          // Start background fetch to update cache
-          _fetchAndCacheSitesInBackground(path);
+          // Start background fetch to update cache (uses bucketName + org/sites.json when root is HTTP)
+          _fetchAndCacheSitesInBackground();
 
           return mergedSites;
         }
@@ -61,7 +71,7 @@ class SiteService {
     }
 
     // Synchronous fetch (either async=false or no cached data available)
-    final remoteSites = await _fetchSitesSynchronously(path);
+    final remoteSites = await _fetchSitesSynchronously();
     final localSites = await LocalSiteStorage.loadLocalSites();
     return _mergeSites(remoteSites, localSites);
   }
@@ -140,18 +150,27 @@ class SiteService {
     }
   }
 
-  static Future<List<Site>> _fetchSitesSynchronously(String path) async {
+  /// Fetches sites.json from remote (presigned GET) or local file according to [AppConfig.getResolvedBucketRoot].
+  /// HTTP root → FetchService.fetch(bucketName, "org/sites.json"); file:// root → read local file.
+  static Future<List<Site>> _fetchSitesSynchronously() async {
     try {
+      final root = AppConfig.getResolvedBucketRoot();
       String jsonStr;
 
-      if (path.startsWith("http")) {
-        final response = await http.get(Uri.parse(path));
+      if (root.startsWith("http")) {
+        // Presigned GET: bucket + key is equivalent to root + /sites.json (e.g. fomomon + t4gc/sites.json).
+        final response = await FetchService.instance.fetch(
+          AppConfig.bucketName,
+          "${AppConfig.org}/sites.json",
+        );
         if (response.statusCode != 200) throw Exception("HTTP error");
         jsonStr = response.body;
 
         // Cache the successful response
         await _cacheSitesJson(jsonStr);
-      } else if (path.startsWith("file://")) {
+      } else if (root.startsWith("file://")) {
+        final path =
+            root.endsWith('/') ? '${root}sites.json' : '$root/sites.json';
         final file = File(Uri.parse(path).toFilePath());
         jsonStr = await file.readAsString();
       } else {
@@ -237,16 +256,21 @@ class SiteService {
     }
   }
 
-  static Future<void> _fetchAndCacheSitesInBackground(String path) async {
+  /// Fetches sites.json in background via presigned GET when root is HTTP. No-op for file:// (local test).
+  static Future<void> _fetchAndCacheSitesInBackground() async {
     try {
       print("Background fetch: Starting to fetch fresh sites data");
 
-      if (!path.startsWith("http")) {
+      final root = AppConfig.getResolvedBucketRoot();
+      if (!root.startsWith("http")) {
         print("Background fetch: Skipping non-HTTP path");
         return;
       }
 
-      final response = await http.get(Uri.parse(path));
+      final response = await FetchService.instance.fetch(
+        AppConfig.bucketName,
+        "${AppConfig.org}/sites.json",
+      );
       if (response.statusCode != 200) {
         print("Background fetch: HTTP error ${response.statusCode}");
         return;
@@ -345,7 +369,16 @@ class SiteService {
         "site_service: Local file does not exist, fetching image from $remoteUrl",
       );
       try {
-        final res = await http.get(Uri.parse(remoteUrl));
+        // App bucket uses presigned GET (bucket + s3KeyFromUrl(remoteUrl)); other URLs use plain GET (e.g. fomomonguest).
+        // Example: remoteUrl https://fomomon.s3.../t4gc/foo.jpg
+        // -> fetch(fomomon, s3KeyFromUrl(remoteUrl) -> t4gc/foo.jpg)
+        final res =
+            _isAppBucketUrl(remoteUrl)
+                ? await FetchService.instance.fetch(
+                  AppConfig.bucketName,
+                  FetchService.s3KeyFromUrl(remoteUrl),
+                )
+                : await http.get(Uri.parse(remoteUrl));
         if (res.statusCode == 200) {
           await localFile.writeAsBytes(res.bodyBytes);
         } else {

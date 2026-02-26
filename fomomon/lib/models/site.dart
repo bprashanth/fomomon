@@ -11,6 +11,7 @@ class Site {
   final double lng;
   final String referencePortrait;
   final String referenceLandscape;
+  final double? referenceHeading;
   String? localPortraitPath;
   String? localLandscapePath;
   final String bucketRoot;
@@ -23,6 +24,7 @@ class Site {
     required this.lng,
     required this.referencePortrait,
     required this.referenceLandscape,
+    this.referenceHeading,
     this.localPortraitPath,
     this.localLandscapePath,
     required this.bucketRoot,
@@ -38,6 +40,10 @@ class Site {
       lng: (json['location']['lng'] as num).toDouble(),
       referencePortrait: json['reference_portrait'],
       referenceLandscape: json['reference_landscape'],
+      referenceHeading:
+          json['reference_heading'] != null
+              ? (json['reference_heading'] as num).toDouble()
+              : null,
       localPortraitPath: json['local_portrait_path'],
       localLandscapePath: json['local_landscape_path'],
       bucketRoot: bucketRoot,
@@ -54,6 +60,7 @@ class Site {
     required String id,
     required double lat,
     required double lng,
+    double? referenceHeading,
     required String bucketRoot,
     required List<SurveyQuestion> surveyQuestions,
   }) {
@@ -63,6 +70,7 @@ class Site {
       lng: lng,
       referencePortrait: '', // Empty for local sites
       referenceLandscape: '', // Empty for local sites
+      referenceHeading: referenceHeading,
       bucketRoot: bucketRoot,
       surveyQuestions: surveyQuestions,
       isLocalSite: true,
@@ -77,6 +85,7 @@ class Site {
       'location': {'lat': lat, 'lng': lng},
       'reference_portrait': referencePortrait,
       'reference_landscape': referenceLandscape,
+       'reference_heading': referenceHeading,
       'local_portrait_path': localPortraitPath,
       'local_landscape_path': localLandscapePath,
       'bucket_root': bucketRoot,
