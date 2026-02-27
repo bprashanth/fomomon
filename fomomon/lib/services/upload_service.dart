@@ -191,7 +191,9 @@ class UploadService {
       return '';
     }
 
-    final fullUrl = _joinUrls(bucketRoot, remotePath);
+    // Strip query/fragment from bucket root so stored URLs never contain ?#
+    final cleanRoot = _stripQueryAndFragment(bucketRoot);
+    final fullUrl = _joinUrls(cleanRoot, remotePath);
     dLog("upload_service: constructed fullUrl: $fullUrl");
 
     // Always try auth path unless in guest mode.
@@ -420,6 +422,16 @@ class UploadService {
 
     final key = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
     return {'bucket': bucket, 'key': key, 'region': _region};
+  }
+
+  /// Removes query and fragment from a URL so stored image URLs never contain ?#
+  String _stripQueryAndFragment(String url) {
+    try {
+      final uri = Uri.parse(url);
+      return uri.replace(query: '', fragment: '').toString();
+    } catch (_) {
+      return url;
+    }
   }
 
   // Helper method to properly join URLs, handling trailing slashes
