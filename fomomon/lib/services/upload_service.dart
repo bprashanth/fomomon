@@ -21,11 +21,15 @@ import 'package:http/http.dart' as http;
 
 import '../models/captured_session.dart';
 import '../models/site.dart';
+import '../models/telemetry_event.dart';
+import '../models/telemetry_pivots.dart';
 import '../services/local_session_storage.dart';
 import '../services/auth_service.dart';
 import '../services/s3_signer_service.dart';
+import '../services/telemetry_service.dart';
 import '../config/app_config.dart';
 import '../exceptions/auth_exceptions.dart';
+import '../utils/log.dart';
 
 /// Fine-grained phases within a single session upload.
 enum UploadPhase { portrait, landscape, sessionJson }
@@ -66,17 +70,53 @@ class UploadService {
         // SiteSyncService can later use them to build ghost images.
         await LocalSessionStorage.markUploadedWithUrls(session);
         onProgress?.call();
+        TelemetryService.instance.log(
+          TelemetryLevel.info,
+          TelemetryPivot.sessionUploaded,
+          'Session uploaded from ${session.siteId}',
+          context: {'siteId': session.siteId, 'sessionId': session.sessionId},
+        );
       } catch (e) {
         if (onSessionError != null) {
           onSessionError(session, e);
         }
         final errorMessage =
             "Failed to upload session ${session.sessionId}: $e";
-        print("upload_service: $errorMessage");
+        dLog("upload_service: $errorMessage");
         errors.add(errorMessage);
+        // AuthSessionExpiredException means the Cognito token could not be
+        // refreshed — distinct from a generic upload failure.
+        if (e is AuthSessionExpiredException) {
+          TelemetryService.instance.log(
+            TelemetryLevel.warning,
+            TelemetryPivot.tokenRefreshFailed,
+            'Session expired during upload for ${session.siteId}',
+            error: e,
+            context: {'siteId': session.siteId, 'sessionId': session.sessionId},
+          );
+        } else {
+          TelemetryService.instance.log(
+            TelemetryLevel.error,
+            TelemetryPivot.sessionUploadFailed,
+            'Session upload failed for ${session.siteId}',
+            error: e,
+            context: {'siteId': session.siteId, 'sessionId': session.sessionId},
+          );
+        }
         // Continue with next session instead of stopping
       }
     }
+
+    // Flush telemetry buffer to S3, piggybacking on this upload moment.
+    // Derive userId from first session; fall back to 'unknown' if no sessions.
+    // flush() handles its own errors internally and never throws.
+    final flushUserId = sessions.isNotEmpty ? sessions.first.userId : 'unknown';
+    final flushOrg = AppConfig.org ?? 'unknown';
+    await TelemetryService.instance.flush(
+      flushUserId,
+      flushOrg,
+      TelemetryService.currentPlatform,
+    );
 
     // If there were any errors, throw a combined error
     if (errors.isNotEmpty) {
@@ -94,13 +134,13 @@ class UploadService {
     try {
       site = sites.firstWhere((s) => s.id == session.siteId);
     } catch (e) {
-      print(
+      dLog(
         "upload_service: Site with ID '${session.siteId}' not found, creating fallback site",
       );
       site = LocalSessionStorage.createSiteForSession(session, sites.first);
     }
 
-    print(
+    dLog(
       "upload_service: found site: ${site.id}, bucketRoot: ${site.bucketRoot}",
     );
 
@@ -134,7 +174,7 @@ class UploadService {
       sessionJsonPath,
     );
     onPhaseProgress?.call(session, UploadPhase.sessionJson);
-    print(
+    dLog(
       'upload_service: Session URL: $sessionUrl, portrait: $portraitUrl, landscape: $landscapeUrl',
     );
     return sessionUrl;
@@ -152,7 +192,7 @@ class UploadService {
     }
 
     final fullUrl = _joinUrls(bucketRoot, remotePath);
-    print("upload_service: constructed fullUrl: $fullUrl");
+    dLog("upload_service: constructed fullUrl: $fullUrl");
 
     // Always try auth path unless in guest mode.
     // This ensures that if token is missing/expired, getValidToken() will throw
@@ -191,7 +231,7 @@ class UploadService {
       );
 
       // Upload file using presigned URL
-      print("upload_service: uploading to presigned URL");
+      dLog("upload_service: uploading to presigned URL");
       final response = await http.put(
         Uri.parse(presignedUrl),
         headers: {'Content-Type': contentType},
@@ -199,16 +239,16 @@ class UploadService {
       );
 
       if (response.statusCode == 200) {
-        print(
+        dLog(
           'upload_service: Successfully uploaded $localPath using presigned URL',
         );
         return fullUrl; // Return the normal (non-signed) URL
       } else {
-        print(
+        dLog(
           'upload_service: Upload failed with status ${response.statusCode}',
         );
-        print('upload_service: Response body: ${response.body}');
-        print('upload_service: Response headers: ${response.headers}');
+        dLog('upload_service: Response body: ${response.body}');
+        dLog('upload_service: Response headers: ${response.headers}');
         throw Exception('File upload failed: ${response.statusCode}');
       }
       // Specifically cath the AuthExceptions thrown by getUploadCredentials()
@@ -218,7 +258,7 @@ class UploadService {
     } on AuthCredentialsException {
       rethrow;
     } catch (e) {
-      print("upload_service: failed auth file upload $e");
+      dLog("upload_service: failed auth file upload $e");
       // Fallback to no-auth upload only for non-auth errors (network, etc.)
       // Why do this? it's a safety valve. In case there's an issue with the
       // signing code, or anything related to the auth path, we can fallback to
@@ -288,7 +328,7 @@ class UploadService {
       // genuine auth failure, eg invalid username, we could still hit this
       // codepath and throw the generic exception.
       if (response.statusCode == 200) {
-        print('upload_service: Successfully uploaded JSON using presigned URL');
+        dLog('upload_service: Successfully uploaded JSON using presigned URL');
         return fullUrl; // Return the normal (non-signed) URL
       } else {
         throw Exception('JSON upload failed: ${response.statusCode}');
@@ -300,7 +340,7 @@ class UploadService {
     } on AuthCredentialsException {
       rethrow;
     } catch (e) {
-      print('upload_service: Authenticated JSON upload failed: $e');
+      dLog('upload_service: Authenticated JSON upload failed: $e');
       // Fallback to no-auth upload only for non-auth errors (network, etc.)
       return await _uploadJsonNoAuth(jsonData, fullUrl);
     }
@@ -308,7 +348,7 @@ class UploadService {
 
   // Internal helper for no-auth file uploads
   Future<String> _uploadFileNoAuth(String localPath, String fullUrl) async {
-    print("upload_service: uploading NOAUTH FILE to $fullUrl");
+    dLog("upload_service: uploading NOAUTH FILE to $fullUrl");
     final file = File(localPath);
     final bytes = await file.readAsBytes();
     final contentType = _getContentType(localPath);
@@ -322,8 +362,8 @@ class UploadService {
     if (response.statusCode == 200) {
       return fullUrl;
     } else {
-      print("upload_service: Upload failed with status ${response.statusCode}");
-      print("upload_service: Response body: ${response.body}");
+      dLog("upload_service: Upload failed with status ${response.statusCode}");
+      dLog("upload_service: Response body: ${response.body}");
       throw Exception('File upload failed: ${response.statusCode}');
     }
   }
@@ -332,7 +372,7 @@ class UploadService {
     Map<String, dynamic> jsonData,
     String fullUrl,
   ) async {
-    print("upload_service: uploading NOAUTH JSON to $fullUrl");
+    dLog("upload_service: uploading NOAUTH JSON to $fullUrl");
     final jsonString = jsonEncode(jsonData);
     final response = await http.put(
       Uri.parse(fullUrl),

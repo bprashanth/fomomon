@@ -7,18 +7,41 @@
 
 import 'package:geolocator/geolocator.dart';
 import '../config/app_config.dart';
+import '../models/telemetry_event.dart';
+import '../models/telemetry_pivots.dart';
+import '../services/telemetry_service.dart';
 
 class GpsService {
   static Future<bool> ensurePermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return false;
+    if (!serviceEnabled) {
+      TelemetryService.instance.log(
+        TelemetryLevel.warning,
+        TelemetryPivot.gpsPermissionDenied,
+        'Location service is disabled on device',
+      );
+      return false;
+    }
 
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    return permission == LocationPermission.always ||
+
+    final granted =
+        permission == LocationPermission.always ||
         permission == LocationPermission.whileInUse;
+
+    if (!granted) {
+      TelemetryService.instance.log(
+        TelemetryLevel.warning,
+        TelemetryPivot.gpsPermissionDenied,
+        'Location permission denied',
+        context: {'permission': permission.name},
+      );
+    }
+
+    return granted;
   }
 
   // TODO(prashanth@): getCurrentPosition() should be used to get the current

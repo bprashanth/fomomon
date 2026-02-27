@@ -232,6 +232,69 @@ button:active,
   display: none;
 }
 
+.tel-scroll {
+  overflow-x: auto;
+  margin-top: 16px;
+}
+
+.tel-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tel-table th,
+.tel-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.tel-table th {
+  font-weight: 600;
+  color: var(--muted);
+  background: #f8f6f2;
+  position: sticky;
+  top: 0;
+}
+
+.tel-ts,
+.tel-pivot {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.tel-level {
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tel-error .tel-level { color: #8b2c2c; }
+.tel-warning .tel-level { color: #7a5200; }
+.tel-info .tel-level { color: var(--muted); }
+
+.tel-error td { background: #fff8f8; }
+.tel-warning td { background: #fffbf0; }
+
+.tel-table details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.tel-table details pre {
+  margin: 6px 0 0;
+  font-size: 12px;
+  max-width: 280px;
+  overflow-x: auto;
+  background: #f8f6f2;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
 @media (max-width: 720px) {
   .header {
     flex-direction: column;

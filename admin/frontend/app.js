@@ -18,6 +18,9 @@ const sitesUpload = document.getElementById('sites-upload');
 const sitesList = document.getElementById('sites-list');
 const bucketRootInput = document.getElementById('bucket-root');
 const syncAuthBtn = document.getElementById('sync-auth-btn');
+const loadTelemetryBtn = document.getElementById('load-telemetry-btn');
+const telemetryStatus = document.getElementById('telemetry-status');
+const telemetryTableWrap = document.getElementById('telemetry-table-wrap');
 
 let currentOrg = '';
 let sitesData = null;
@@ -419,6 +422,56 @@ sitesUpload?.addEventListener('change', async () => {
   }
 });
 
+async function loadTelemetry() {
+  if (!currentOrg) {
+    showAlert('Select an org first.', 'error');
+    return;
+  }
+  telemetryStatus.textContent = 'Loading…';
+  telemetryTableWrap.innerHTML = '';
+  try {
+    const data = await api(`/api/orgs/${encodeURIComponent(currentOrg)}/telemetry`);
+    renderTelemetry(data);
+    telemetryStatus.textContent =
+      `${data.events.length} events · ${data.files_fetched} file(s) · ${(data.bytes_fetched / 1024).toFixed(1)} KB`;
+  } catch (err) {
+    telemetryStatus.textContent = '';
+    showAlert(err.message, 'error');
+  }
+}
+
+function renderTelemetry(data) {
+  if (!data.events || !data.events.length) {
+    telemetryTableWrap.innerHTML = '<p class="muted">No telemetry events in the last 7 days.</p>';
+    return;
+  }
+  const rows = data.events.map((e) => {
+    const levelClass = e.level === 'error' ? 'tel-error' : e.level === 'warning' ? 'tel-warning' : 'tel-info';
+    const ts = (e.timestamp || '').replace('T', ' ').replace('Z', '');
+    const ctx = e.context ? JSON.stringify(e.context, null, 2) : '';
+    const ctxHtml = ctx
+      ? `<details><summary>ctx</summary><pre>${ctx}</pre></details>`
+      : '—';
+    const userId = e._userId ? `<span class="muted">${e._userId}</span>` : '';
+    return `<tr class="${levelClass}">
+      <td class="tel-ts">${ts}${userId ? '<br>' + userId : ''}</td>
+      <td class="tel-level">${e.level || ''}</td>
+      <td class="tel-pivot">${e.pivot || ''}</td>
+      <td>${e.message || ''}${e.error ? `<br><span class="muted">${e.error}</span>` : ''}</td>
+      <td>${ctxHtml}</td>
+    </tr>`;
+  }).join('');
+  telemetryTableWrap.innerHTML = `
+    <div class="tel-scroll">
+      <table class="tel-table">
+        <thead><tr><th>Time / User</th><th>Level</th><th>Pivot</th><th>Message</th><th>Context</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+loadTelemetryBtn?.addEventListener('click', () => loadTelemetry());
+
 async function refreshAll() {
   try {
     await loadOrgs();
@@ -436,6 +489,13 @@ useOrgBtn?.addEventListener('click', async () => {
   if (!selected) return;
   currentOrg = selected;
   orgInput.value = '';
+  try {
+    const prov = await api(`/api/orgs/${encodeURIComponent(currentOrg)}/provision`, { method: 'POST' });
+    const ruleMsg = prov.lifecycle_rule_created ? ' Lifecycle rule created.' : ' Lifecycle rule already in place.';
+    showAlert(`Org "${currentOrg}" provisioned.${ruleMsg}`);
+  } catch (err) {
+    showAlert(`Provision failed for "${currentOrg}": ${err.message}`, 'error');
+  }
   await refreshAll();
 });
 

@@ -2,6 +2,10 @@ class AppConfig {
   // The "local" and "mock" variables used here are only used in testing mode.
   static bool isTestMode = false;
   static bool isGuestMode = false;
+
+  /// Set to false to disable all telemetry buffering and flushing (e.g. for
+  /// local dev or specific orgs). See docs/observability.md for details.
+  static bool isTelemetryEnabled = true;
   // Path to a local directory, trailing slash is optional
   static String? _localRoot;
   static double? mockLat = 10.31344;
@@ -13,6 +17,8 @@ class AppConfig {
   static String? _region;
 
   // Defaults (centralized)
+  // appVersion is kept in sync with pubspec.yaml and the Play Console version.
+  static const String appVersion = '1.1.0+9';
   static const String defaultBucketName = 'fomomon';
   static const String defaultRegion = 'ap-south-1';
   static const String defaultOrg = 't4gc';
@@ -80,6 +86,20 @@ class AppConfig {
   }
 
   static String? get org => _org;
+
+  /// S3 key for one telemetry flush file.
+  ///
+  /// Path: telemetry/{org}/{YYYY-MM-DD}/{userId}_{epochMs}.json
+  ///
+  /// Telemetry lives under the top-level telemetry/ prefix rather than
+  /// {org}/telemetry/ so that a single S3 lifecycle rule on "telemetry/"
+  /// covers all orgs without any risk of the expiry rule touching org data
+  /// ({org}/sites.json, {org}/users.json, captured images).
+  /// See docs/observability.md for the full rationale.
+  static String telemetryS3Key(
+      String org, String date, String userId, int epochMs) {
+    return 'telemetry/$org/$date/${userId}_$epochMs.json';
+  }
 
   /// Resolved root URL or local path for the org's data (e.g. https://bucket.s3.region.amazonaws.com/org or file:///path).
   /// Used for: (1) branching in SiteService (http vs file://) and (2) site_sync_service / cached sites.json

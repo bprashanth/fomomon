@@ -72,12 +72,21 @@ These live in `lib/config/app_config.dart` and are typically set in `main.dart` 
 - **`AppConfig.mockLat` / `AppConfig.mockLng` (double?)**  
   - When `AppConfig.isTestMode == true` and both are non-null, GPS calls in `GpsService` return a fixed position at `(mockLat, mockLng)` instead of the device’s real location.
 
-- **`AppConfig.isGuestMode` (bool)**  
-  - Enabled via `AppConfig.configureGuestMode()` when the user continues as guest.  
+- **`AppConfig.isGuestMode` (bool)**
+  - Enabled via `AppConfig.configureGuestMode()` when the user continues as guest.
   - Behavior:
     - Sites list comes from a hardcoded JSON in `lib/data/guest_sites.dart`.
-    - Uploads go to a **guest bucket** (`fomomonguest`) without Cognito auth.  
+    - Uploads go to a **guest bucket** (`fomomonguest`) without Cognito auth.
     - `SiteSyncService` is skipped in guest mode.
+
+- **`AppConfig.isTelemetryEnabled` (bool, default `true`)**
+  - Controls the `TelemetryService` pipeline entirely.
+  - When `false`:
+    - `TelemetryService.log()` is a no-op — no events are buffered.
+    - `TelemetryService.flush()` is a no-op — no S3 requests are made.
+  - Set to `false` for local development, automated tests, or specific orgs
+    where telemetry is not desired.
+  - See `docs/observability.md` for the full telemetry design.
 
 - **Bucket/org/region defaults**  
   - `defaultBucketName = 'fomomon'`  

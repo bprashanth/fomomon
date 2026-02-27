@@ -6,9 +6,13 @@ import 'package:path_provider/path_provider.dart';
 import '../config/app_config.dart';
 import '../models/captured_session.dart';
 import '../models/site.dart';
+import '../models/telemetry_event.dart';
+import '../models/telemetry_pivots.dart';
 import '../services/local_session_storage.dart';
 import '../services/local_site_storage.dart';
+import '../services/telemetry_service.dart';
 import '../services/upload_service.dart';
+import '../utils/log.dart';
 
 /// SiteSyncService
 /// ---------------
@@ -24,7 +28,7 @@ class SiteSyncService {
   /// - Never throws to the caller; logs errors instead.
   static Future<void> syncSitesToRemote() async {
     if (AppConfig.isGuestMode) {
-      print('site_sync: Skipping sync in guest mode');
+      dLog('site_sync: Skipping sync in guest mode');
       return;
     }
 
@@ -35,7 +39,7 @@ class SiteSyncService {
 
       final localSites = await LocalSiteStorage.loadLocalSites();
       if (localSites.isEmpty) {
-        print('site_sync: No local sites to sync');
+        dLog('site_sync: No local sites to sync');
         return;
       }
 
@@ -45,7 +49,7 @@ class SiteSyncService {
           localSites.where((s) => !remoteIds.contains(s.id)).toList();
 
       if (newLocalSites.isEmpty) {
-        print(
+        dLog(
           'site_sync: All local sites already present in remote; nothing to do',
         );
         return;
@@ -63,7 +67,7 @@ class SiteSyncService {
           }).toList();
 
       if (uploadedSessions.isEmpty) {
-        print(
+        dLog(
           'site_sync: No uploaded sessions with image URLs found; cannot build ghost images',
         );
         return;
@@ -111,7 +115,7 @@ class SiteSyncService {
           uploadedSessions,
         );
         if (session == null) {
-          print(
+          dLog(
             'site_sync: No uploaded session found with URLs for local site ${local.id}, skipping',
           );
           continue;
@@ -127,7 +131,7 @@ class SiteSyncService {
         );
 
         if (portraitRel == null || landscapeRel == null) {
-          print(
+          dLog(
             'site_sync: Failed to extract relative paths for site ${local.id}, skipping',
           );
           continue;
@@ -146,10 +150,16 @@ class SiteSyncService {
         );
 
         newRemoteSites.add(newSite);
+        TelemetryService.instance.log(
+          TelemetryLevel.info,
+          TelemetryPivot.siteSynced,
+          'New site written to sites.json: ${local.id}',
+          context: {'siteId': local.id},
+        );
       }
 
       if (newRemoteSites.isEmpty) {
-        print('site_sync: No new remote site entries to add; aborting sync');
+        dLog('site_sync: No new remote site entries to add; aborting sync');
         return;
       }
 
@@ -160,7 +170,7 @@ class SiteSyncService {
         'sites': allSites.map((s) => s.toJson()).toList(),
       };
 
-      print(
+      dLog(
         'site_sync: Uploading updated sites.json with '
         '${remoteSites.length} existing + ${newRemoteSites.length} new sites',
       );
@@ -171,10 +181,16 @@ class SiteSyncService {
         'sites.json',
       );
 
-      print('site_sync: Successfully synced sites.json to remote');
+      dLog('site_sync: Successfully synced sites.json to remote');
     } catch (e, st) {
-      print('site_sync: Failed to sync sites.json: $e');
-      print(st);
+      dLog('site_sync: Failed to sync sites.json: $e');
+      dLog(st.toString());
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.siteSyncFailed,
+        'syncSitesToRemote() failed',
+        error: e,
+      );
     }
   }
 
@@ -189,7 +205,7 @@ class SiteSyncService {
 
       if (!await cacheFile.exists()) {
         final bucketRoot = AppConfig.getResolvedBucketRoot();
-        print(
+        dLog(
           'site_sync: No cached remote sites.json found, starting fresh with bucketRoot=$bucketRoot',
         );
         return (bucketRoot: bucketRoot, sites: <Site>[]);
@@ -208,14 +224,14 @@ class SiteSyncService {
               )
               .toList();
 
-      print(
+      dLog(
         'site_sync: Loaded ${sites.length} remote sites from cached sites.json',
       );
 
       return (bucketRoot: bucketRoot, sites: sites);
     } catch (e) {
       final bucketRoot = AppConfig.getResolvedBucketRoot();
-      print(
+      dLog(
         'site_sync: Error loading cached remote sites.json ($e), starting with empty list',
       );
       return (bucketRoot: bucketRoot, sites: <Site>[]);
@@ -258,7 +274,7 @@ class SiteSyncService {
 
       final idx = urlWithoutQuery.indexOf(normalizedRoot);
       if (idx == -1) {
-        print(
+        dLog(
           'site_sync: Bucket root $normalizedRoot not found in URL $urlWithoutQuery',
         );
         return null;
@@ -269,7 +285,7 @@ class SiteSyncService {
         start++;
       }
       if (start >= urlWithoutQuery.length) {
-        print(
+        dLog(
           'site_sync: Computed empty relative path for URL $urlWithoutQuery',
         );
         return null;
@@ -278,7 +294,7 @@ class SiteSyncService {
       final relative = urlWithoutQuery.substring(start);
       return relative;
     } catch (e) {
-      print('site_sync: Failed to extract relative path from $fullUrl: $e');
+      dLog('site_sync: Failed to extract relative path from $fullUrl: $e');
       return null;
     }
   }

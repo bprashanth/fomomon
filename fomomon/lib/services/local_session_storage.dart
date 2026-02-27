@@ -35,6 +35,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/captured_session.dart';
 import '../models/site.dart';
 import '../models/survey_question.dart';
+import '../utils/log.dart';
 
 class LocalSessionStorage {
   static Future<Directory> _getSessionDir() async {
@@ -64,7 +65,7 @@ class LocalSessionStorage {
         final data = jsonDecode(jsonStr);
         sessions.add(CapturedSession.fromJson(data));
       } catch (e) {
-        print('Error reading session file ${file.path}: $e');
+        dLog('Error reading session file ${file.path}: $e');
       }
     }
     return sessions;
@@ -82,7 +83,7 @@ class LocalSessionStorage {
         final data = jsonDecode(jsonStr);
         session = CapturedSession.fromJson(data);
       } catch (e) {
-        print('Error loading session for deletion ${file.path}: $e');
+        dLog('Error loading session for deletion ${file.path}: $e');
       }
     }
 
@@ -94,7 +95,7 @@ class LocalSessionStorage {
           await portraitFile.delete();
         }
       } catch (e) {
-        print('Error deleting portrait image ${session.portraitImagePath}: $e');
+        dLog('Error deleting portrait image ${session.portraitImagePath}: $e');
       }
     }
 
@@ -106,7 +107,7 @@ class LocalSessionStorage {
           await landscapeFile.delete();
         }
       } catch (e) {
-        print(
+        dLog(
           'Error deleting landscape image ${session.landscapeImagePath}: $e',
         );
       }

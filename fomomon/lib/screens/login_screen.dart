@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
+import '../models/telemetry_event.dart';
+import '../models/telemetry_pivots.dart';
 import '../screens/site_prefetch_screen.dart';
 import '../screens/home_screen.dart';
 import '../services/auth_service.dart';
+import '../services/telemetry_service.dart';
 import '../models/login_error.dart';
 import '../exceptions/auth_exceptions.dart';
+import '../utils/log.dart';
 import '../widgets/privacy_policy_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -75,19 +79,37 @@ class _LoginScreenState extends State<LoginScreen> {
         _isLoadingConfig = false;
       });
     } on AuthNetworkException catch (e) {
-      print('login_screen: Network error in background config fetch: $e');
+      dLog('login_screen: Network error in background config fetch: $e');
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.authConfigFetchFailed,
+        'Network error fetching auth config',
+        error: e,
+      );
       setState(() {
         _isLoadingConfig = false;
         _loginError = LoginError.networkError;
       });
     } on AuthConfigException catch (e) {
-      print('login_screen: Config error in background fetch: $e');
+      dLog('login_screen: Config error in background fetch: $e');
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.authConfigFetchFailed,
+        'Failed to parse auth config',
+        error: e,
+      );
       setState(() {
         _isLoadingConfig = false;
         _loginError = LoginError.configFetchFailed;
       });
     } catch (e) {
-      print('login_screen: Unexpected error in background config fetch: $e');
+      dLog('login_screen: Unexpected error in background config fetch: $e');
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.authConfigFetchFailed,
+        'Unexpected error fetching auth config',
+        error: e,
+      );
       setState(() {
         _isLoadingConfig = false;
         _loginError = LoginError.configFetchFailed;
@@ -96,7 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleSubmit() async {
-    print('login_screen: Handling submit');
+    dLog('login_screen: Handling submit');
     if (!_formKey.currentState!.validate()) return;
 
     // If config fetch failed in background, retry now
@@ -128,7 +150,7 @@ class _LoginScreenState extends State<LoginScreen> {
           email.isNotEmpty &&
           org.isNotEmpty) {
         final authService = AuthService.instance;
-        print('login_screen: Logging in user: $email');
+        dLog('login_screen: Logging in user: $email');
 
         await authService.login(name, password);
         final token = await authService.getValidToken();
@@ -148,31 +170,61 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } on AuthCredentialsException catch (e) {
-      print('login_screen: Invalid credentials: $e');
+      dLog('login_screen: Invalid credentials: $e');
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.loginFailed,
+        'Login failed: invalid credentials',
+        error: e,
+      );
       setState(() {
         _loginError = LoginError.invalidCredentials;
         _isLoadingLogin = false;
       });
     } on AuthNetworkException catch (e) {
-      print('login_screen: Network error during login: $e');
+      dLog('login_screen: Network error during login: $e');
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.loginFailed,
+        'Login failed: network error',
+        error: e,
+      );
       setState(() {
         _loginError = LoginError.networkError;
         _isLoadingLogin = false;
       });
     } on AuthConfigException catch (e) {
-      print('login_screen: Config error during login: $e');
+      dLog('login_screen: Config error during login: $e');
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.loginFailed,
+        'Login failed: config error',
+        error: e,
+      );
       setState(() {
         _loginError = LoginError.configFetchFailed;
         _isLoadingLogin = false;
       });
     } on AuthServiceException catch (e) {
-      print('login_screen: Service error during login: $e');
+      dLog('login_screen: Service error during login: $e');
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.loginFailed,
+        'Login failed: service error',
+        error: e,
+      );
       setState(() {
         _loginError = LoginError.unknown;
         _isLoadingLogin = false;
       });
     } catch (e) {
-      print('login_screen: Unexpected error during login: $e');
+      dLog('login_screen: Unexpected error during login: $e');
+      TelemetryService.instance.log(
+        TelemetryLevel.error,
+        TelemetryPivot.loginFailed,
+        'Login failed: unexpected error',
+        error: e,
+      );
       setState(() {
         _loginError = LoginError.unknown;
         _isLoadingLogin = false;
@@ -181,7 +233,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleGuestLogin() async {
-    print('login_screen: Handling guest login');
+    dLog('login_screen: Handling guest login');
 
     setState(() {
       _isLoadingLogin = true;
