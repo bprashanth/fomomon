@@ -3,7 +3,10 @@ import '../services/heading_service.dart';
 import '../models/site.dart';
 import '../models/survey_response.dart';
 import '../models/captured_session.dart';
+import '../models/telemetry_event.dart';
+import '../models/telemetry_pivots.dart';
 import '../services/local_session_storage.dart';
+import '../services/telemetry_service.dart';
 import '../models/survey_question.dart';
 import '../screens/home_screen.dart';
 
@@ -122,6 +125,16 @@ class _SurveyScreenState extends State<SurveyScreen> {
     );
 
     await LocalSessionStorage.saveSession(session);
+    TelemetryService.instance.log(
+      TelemetryLevel.info,
+      TelemetryPivot.sessionCaptured,
+      'Session saved at end of pipeline for ${widget.site.id}',
+      context: {
+        'siteId': widget.site.id,
+        'sessionId': session.sessionId,
+        'userId': widget.userId,
+      },
+    );
     if (!mounted) return;
 
     Navigator.of(context).pushAndRemoveUntil(

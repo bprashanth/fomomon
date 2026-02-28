@@ -33,6 +33,8 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
   String? _currentSessionLabel;
   // _lastErrorLabel is only for debug logging, not shown to user
   String? _lastErrorLabel;
+  /// After all session uploads, while syncing sites.json and telemetry.
+  bool _isSyncingMetadata = false;
 
   // Number of phases per session (matches UploadService.numPhasesPerSession)
   static const int numPhasesPerSession = 3;
@@ -130,6 +132,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       _currentPhase = null;
       _currentSessionLabel = null;
       _lastErrorLabel = null;
+      _isSyncingMetadata = false;
     });
 
     // Network check before starting upload
@@ -137,12 +140,17 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
     if (!hasNetwork) {
       setState(() {
         _isUploading = false;
+        _isSyncingMetadata = false;
         _noNetwork = true;
         hasError = true;
       });
       return;
     }
 
+    // Error/sync behavior: uploadAllSessions throws on any session failure (after
+    // finishing the loop and telemetry flush); we catch and clear _isUploading +
+    // _isSyncingMetadata so the UI never stays in "Syncing…". syncSitesToRemote()
+    // never throws (logs only), so we always reach the success path and clear flags.
     try {
       await UploadService.instance.uploadAllSessions(
         sites: widget.sites,
@@ -166,6 +174,11 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
         },
       );
 
+      // Show "Updating sites…" while syncing sites.json (and telemetry already
+      // flushed inside uploadAllSessions).
+      if (mounted) {
+        setState(() => _isSyncingMetadata = true);
+      }
       // After all sessions upload successfully, attempt to sync local sites
       // into remote sites.json. This runs in the same try/catch so any
       // AuthSessionExpiredException bubbles up consistently, but internal
@@ -175,13 +188,19 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       // Refresh after upload + sync completes so the dial reflects the new
       // number of remaining sessions (usually 0/0 after a full successful run).
       await _loadSessions();
-      setState(() {
-        _isUploading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _isSyncingMetadata = false;
+        });
+      }
     } on AuthSessionExpiredException catch (e) {
       print("upload_dial_widget: Session expired: $e");
-      // Show error message and navigate to login screen
       if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _isSyncingMetadata = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Your session has expired. Please log in again.'),
@@ -194,8 +213,11 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       }
     } on AuthCredentialsException catch (e) {
       print("upload_dial_widget: Auth credentials error: $e");
-      // Session might be expired, navigate to login
       if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _isSyncingMetadata = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Your session has expired. Please log in again.'),
@@ -218,9 +240,12 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       }
       // Still refresh to get accurate count even on error
       await _loadSessions();
-      setState(() {
-        _isUploading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _isSyncingMetadata = false;
+        });
+      }
     }
   }
 
@@ -245,12 +270,19 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
         totalSubsteps == 0
             ? 0.0
             : (_completedSubsteps / totalSubsteps).clamp(0.0, 1.0);
+    // Indeterminate spinner when waiting for first upload or when syncing metadata
+    final showIndeterminate = _isUploading &&
+        (total > 0 && _completedSubsteps == 0 || _isSyncingMetadata);
 
     final phaseLabel =
-        _currentPhase != null
+        _isSyncingMetadata
+            ? 'Updating sites…'
+            : _currentPhase != null
             ? _phaseLongLabel[_currentPhase] ?? ''
             : total == 0
             ? 'Idle'
+            : _isUploading && total > 0 && _completedSubsteps == 0
+            ? 'Starting sync…'
             : 'Ready';
 
     // Show success message when all sessions uploaded
@@ -281,7 +313,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
                     ),
                   ),
                   child: CircularProgressIndicator(
-                    value: progressValue,
+                    value: showIndeterminate ? null : progressValue,
                     strokeWidth: 6,
                     backgroundColor: Colors.grey.withOpacity(0.3),
                     valueColor: const AlwaysStoppedAnimation<Color>(

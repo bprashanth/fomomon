@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'package:amazon_cognito_identity_dart_2/sig_v4.dart';
 
 import '../config/app_config.dart';
+import '../utils/log.dart';
 
 class S3SignerService {
   S3SignerService._privateConstructor();
@@ -32,7 +33,7 @@ class S3SignerService {
     int expiresInMinutes = 15,
   }) async {
     try {
-      print('s3_signer_service: Creating presigned PUT URL for $s3Key');
+      dLog('s3_signer_service: Creating presigned PUT URL for $s3Key');
       return _createPresignedUrl(
         bucketName: bucketName,
         s3Key: s3Key,
@@ -42,7 +43,7 @@ class S3SignerService {
         expiresInMinutes: expiresInMinutes,
       );
     } catch (e) {
-      print('s3_signer_service: Failed to create presigned PUT URL: $e');
+      dLog('s3_signer_service: Failed to create presigned PUT URL: $e');
       rethrow;
     }
   }
@@ -61,7 +62,7 @@ class S3SignerService {
     int expiresInMinutes = 15,
   }) async {
     try {
-      print('s3_signer_service: Creating presigned GET URL for $s3Key');
+      dLog('s3_signer_service: Creating presigned GET URL for $s3Key');
       return _createPresignedUrl(
         bucketName: bucketName,
         s3Key: s3Key,
@@ -70,7 +71,7 @@ class S3SignerService {
         expiresInMinutes: expiresInMinutes,
       );
     } catch (e) {
-      print('s3_signer_service: Failed to create presigned GET URL: $e');
+      dLog('s3_signer_service: Failed to create presigned GET URL: $e');
       rethrow;
     }
   }

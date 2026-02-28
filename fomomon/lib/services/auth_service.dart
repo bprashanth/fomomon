@@ -19,6 +19,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/auth_config.dart';
 import '../config/app_config.dart';
 import '../exceptions/auth_exceptions.dart';
+import '../utils/log.dart';
 import 'fetch_service.dart';
 
 /// Authentication Service
@@ -92,13 +93,13 @@ class AuthService {
   /// which will then call getValidToken() to refresh the session.
   Future<bool> isUserLoggedIn() async {
     if (_session != null) {
-      print('auth_service: Session exists, returning true');
+      dLog('auth_service: Session exists, returning true');
       return true;
     }
 
     // Check for stored refresh token (indicates user has logged in before)
     final storedToken = await _secureStorage.read(key: _refreshTokenKey);
-    print('auth_service: Stored refresh token: $storedToken');
+    dLog('auth_service: Stored refresh token: $storedToken');
     return storedToken != null;
   }
 
@@ -115,7 +116,7 @@ class AuthService {
       final configUrl =
           'https://$bucketName.s3.$region.amazonaws.com/auth_config.json';
 
-      print('auth_service: Fetching auth config from $configUrl');
+      dLog('auth_service: Fetching auth config from $configUrl');
       final response = await FetchService.instance.fetchUnauthenticated(configUrl);
 
       if (response.statusCode == 200) {
@@ -128,7 +129,7 @@ class AuthService {
           _authConfig!.clientId,
         );
 
-        print('auth_service: Successfully fetched auth config: $_authConfig');
+        dLog('auth_service: Successfully fetched auth config: $_authConfig');
         return _authConfig!;
       } else {
         throw AuthConfigException(
@@ -136,13 +137,13 @@ class AuthService {
         );
       }
     } on SocketException catch (e) {
-      print('auth_service: Network error fetching auth config: $e');
+      dLog('auth_service: Network error fetching auth config: $e');
       throw AuthNetworkException(e);
     } on FormatException catch (e) {
-      print('auth_service: Invalid JSON in auth config: $e');
+      dLog('auth_service: Invalid JSON in auth config: $e');
       throw AuthConfigException(e);
     } catch (e) {
-      print('auth_service: Failed to fetch auth config: $e');
+      dLog('auth_service: Failed to fetch auth config: $e');
       if (e is AuthException) {
         rethrow;
       }
@@ -184,9 +185,9 @@ class AuthService {
     );
 
     try {
-      print('auth_service: Logging in user: $email');
+      dLog('auth_service: Logging in user: $email');
       _session = await _user!.authenticateUser(authDetails);
-      print('auth_service: Login successful for user: $email');
+      dLog('auth_service: Login successful for user: $email');
 
       // Refresh token stored via secure storage (encrypted until device
       // unlock). This enables offline app access after reboot.
@@ -205,10 +206,10 @@ class AuthService {
           );
         }
         await _secureStorage.write(key: _orgKey, value: org);
-        print('auth_service: Stored refresh token and user info securely');
+        dLog('auth_service: Stored refresh token and user info securely');
       }
     } on CognitoClientException catch (e) {
-      print('auth_service: Cognito authentication failed: $e');
+      dLog('auth_service: Cognito authentication failed: $e');
       // Check for specific Cognito error codes
       if (e.code == 'NotAuthorizedException' ||
           e.code == 'UserNotFoundException' ||
@@ -220,10 +221,10 @@ class AuthService {
         throw AuthServiceException(e);
       }
     } on SocketException catch (e) {
-      print('auth_service: Network error during login: $e');
+      dLog('auth_service: Network error during login: $e');
       throw AuthNetworkException(e);
     } catch (e) {
-      print('auth_service: Unexpected error during login: $e');
+      dLog('auth_service: Unexpected error during login: $e');
       if (e is AuthException) {
         rethrow;
       }
@@ -258,7 +259,7 @@ class AuthService {
       // Check for stored refresh token
       final refreshToken = await _secureStorage.read(key: _refreshTokenKey);
       if (refreshToken == null) {
-        print('auth_service: No stored refresh token found');
+        dLog('auth_service: No stored refresh token found');
         return null;
       }
 
@@ -266,7 +267,7 @@ class AuthService {
       final org = await _secureStorage.read(key: _orgKey);
 
       if (username == null || org == null) {
-        print('auth_service: Stored token found but missing username or org');
+        dLog('auth_service: Stored token found but missing username or org');
         // Clear incomplete data
         await _secureStorage.delete(key: _refreshTokenKey);
         await _secureStorage.delete(key: _usernameKey);
@@ -282,12 +283,12 @@ class AuthService {
       // CognitoUser will be created in getValidToken() when auth config is available.
       // For now, just return user info to bypass login screen.
 
-      print(
+      dLog(
         'auth_service: Restored offline session info: $username, org: $org',
       );
       return {'username': username, 'org': org};
     } catch (e) {
-      print('auth_service: Error restoring session: $e');
+      dLog('auth_service: Error restoring session: $e');
       // Clear potentially corrupted data
       await _secureStorage.delete(key: _refreshTokenKey);
       await _secureStorage.delete(key: _usernameKey);
@@ -306,7 +307,7 @@ class AuthService {
     await _secureStorage.delete(key: _refreshTokenKey);
     await _secureStorage.delete(key: _usernameKey);
     await _secureStorage.delete(key: _orgKey);
-    print('auth_service: Cleared stored session data');
+    dLog('auth_service: Cleared stored session data');
   }
 
   /// Get a valid token from the session.
@@ -324,7 +325,7 @@ class AuthService {
         try {
           await fetchAuthConfig();
         } catch (e) {
-          print(
+          dLog(
             'auth_service: Failed to fetch auth config for token refresh: $e',
           );
           throw AuthSessionExpiredException(
@@ -355,14 +356,14 @@ class AuthService {
         // refreshSession() will make a network call to Cognito to validate the refresh token
         // and get a new ID token. There's no way to check if a refresh token is valid without
         // calling Cognito, so we can't avoid the network call.
-        print(
+        dLog(
           'auth_service: No session but found stored refresh token, refreshing',
         );
         try {
           _session = await _user!.refreshSession(
             CognitoRefreshToken(storedRefreshToken),
           );
-          print('auth_service: Session restored from stored refresh token');
+          dLog('auth_service: Session restored from stored refresh token');
           // Update stored refresh token if it changed
           if (_session!.refreshToken != null) {
             await _secureStorage.write(
@@ -372,7 +373,7 @@ class AuthService {
           }
           return _session!.idToken.jwtToken;
         } catch (e) {
-          print(
+          dLog(
             'auth_service: Failed to restore session from stored token: $e',
           );
           // Clear invalid stored token
@@ -393,16 +394,16 @@ class AuthService {
 
     // If session is valid, return it
     if (_session!.isValid()) {
-      print('auth_service: Session is valid, returning jwt token');
+      dLog('auth_service: Session is valid, returning jwt token');
       return _session!.idToken.jwtToken;
     }
 
     // Session is invalid, try to refresh
     if (_session!.refreshToken != null) {
-      print('auth_service: Session is invalid, refreshing session');
+      dLog('auth_service: Session is invalid, refreshing session');
       try {
         _session = await _user!.refreshSession(_session!.refreshToken!);
-        print('auth_service: Session refreshed, returning jwt token');
+        dLog('auth_service: Session refreshed, returning jwt token');
         // Update stored refresh token if it changed
         if (_session!.refreshToken != null) {
           await _secureStorage.write(
@@ -412,7 +413,7 @@ class AuthService {
         }
         return _session!.idToken.jwtToken;
       } catch (e) {
-        print('auth_service: Failed to refresh session: $e');
+        dLog('auth_service: Failed to refresh session: $e');
         // Clear invalid session
         _session = null;
         await _secureStorage.delete(key: _refreshTokenKey);
@@ -443,7 +444,7 @@ class AuthService {
         );
       }
 
-      print('auth_service: Got valid ID token, length: ${idToken.length}');
+      dLog('auth_service: Got valid ID token, length: ${idToken.length}');
 
       // Create CognitoCredentials instance and get temporary AWS credentials
       final credentials = CognitoCredentials(
@@ -452,12 +453,12 @@ class AuthService {
       );
       await credentials.getAwsCredentials(idToken);
 
-      print('auth_service: Successfully obtained temporary AWS credentials');
-      print('auth_service: Access Key ID: ${credentials.accessKeyId}');
-      print(
+      dLog('auth_service: Successfully obtained temporary AWS credentials');
+      dLog('auth_service: Access Key ID: ${credentials.accessKeyId}');
+      dLog(
         'auth_service: Secret Access Key length: ${credentials.secretAccessKey?.length ?? 0}',
       );
-      print(
+      dLog(
         'auth_service: Session Token length: ${credentials.sessionToken?.length ?? 0}',
       );
 
@@ -467,10 +468,10 @@ class AuthService {
         'sessionToken': credentials.sessionToken,
       };
     } on SocketException catch (e) {
-      print('auth_service: Network error getting upload credentials: $e');
+      dLog('auth_service: Network error getting upload credentials: $e');
       throw AuthNetworkException(e);
     } catch (e) {
-      print('auth_service: Failed to get upload credentials: $e');
+      dLog('auth_service: Failed to get upload credentials: $e');
       if (e is AuthException) {
         rethrow;
       }

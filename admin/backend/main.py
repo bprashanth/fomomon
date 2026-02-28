@@ -672,6 +672,45 @@ def upload_ghost_image(
     }
 
 
+@app.post("/api/orgs/{org}/provision")
+def provision_org(org: str, bucket: Optional[str] = None):
+    """Ensure org prefix, telemetry/{org}/ prefix, and the telemetry lifecycle rule exist.
+
+    Idempotent — safe to call on every "Use Org" action whether the org is new
+    or already exists. Returns what was created vs already in place.
+
+    The optional `bucket` query parameter overrides the server's configured
+    FOMOMON_BUCKET for this call only. Useful for testing against a throwaway
+    bucket without restarting the server.
+    """
+    svc = S3Service(bucket_name=bucket, region=AWS_REGION or "") if bucket else s3
+    effective_bucket = bucket or BUCKET_NAME
+    svc.ensure_org_prefix(org)
+    svc.ensure_telemetry_prefix(org)
+    lc = svc.ensure_telemetry_lifecycle_rule()
+    return {
+        "ok": True,
+        "org": org,
+        "bucket": effective_bucket,
+        "lifecycle_rule_created": lc["created"],
+        "lifecycle_rules": lc["rules"],
+    }
+
+
+@app.get("/api/orgs/{org}/telemetry")
+def get_telemetry(org: str, days: int = 7):
+    """Fetch and merge telemetry events for the given org (last `days` days)."""
+    result = s3.list_telemetry_events(org, days=days)
+    return result
+
+
+@app.delete("/api/orgs/{org}/telemetry")
+def delete_telemetry(org: str):
+    """Delete all telemetry objects for the given org under telemetry/{org}/."""
+    count = s3.delete_telemetry(org)
+    return {"ok": True, "deleted": count}
+
+
 @app.get("/api/s3")
 def presign_s3(key: str):
     if not key:
