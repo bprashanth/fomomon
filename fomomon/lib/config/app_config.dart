@@ -18,7 +18,7 @@ class AppConfig {
 
   // Defaults (centralized)
   // appVersion is kept in sync with pubspec.yaml and the Play Console version.
-  static const String appVersion = '1.1.0+9';
+  static const String appVersion = '1.1.0+11';
   static const String defaultBucketName = 'fomomon';
   static const String defaultRegion = 'ap-south-1';
   static const String defaultOrg = 't4gc';
