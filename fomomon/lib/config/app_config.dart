@@ -23,6 +23,13 @@ class AppConfig {
   static const String defaultRegion = 'ap-south-1';
   static const String defaultOrg = 't4gc';
 
+  // UX tuning
+  // Distance (meters) within which we stop turn-by-turn advisory and show
+  // "You are near the site" to avoid noisy bearings.
+  static double nearSiteMeters = 5.0;
+  // Light cone width (degrees) for the radar panel.
+  static double coneSweepDegrees = 60.0;
+
   // Guest mode variables
   static const String guestUser = 'Srini';
   static const String guestEmail = 'srini@ncf-india.org';
@@ -97,7 +104,11 @@ class AppConfig {
   /// ({org}/sites.json, {org}/users.json, captured images).
   /// See docs/observability.md for the full rationale.
   static String telemetryS3Key(
-      String org, String date, String userId, int epochMs) {
+    String org,
+    String date,
+    String userId,
+    int epochMs,
+  ) {
     return 'telemetry/$org/$date/${userId}_$epochMs.json';
   }
 

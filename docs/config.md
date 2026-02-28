@@ -96,6 +96,18 @@ These live in `lib/config/app_config.dart` and are typically set in `main.dart` 
 
 ---
 
+## UX tuning
+
+- `AppConfig.nearSiteMeters` (default: 5.0)
+  When the user is within this distance of a site, the route advisory shows
+  "You are near the site" instead of turn-by-turn guidance to avoid noisy
+  bearing flips.
+
+- `AppConfig.coneSweepDegrees` (default: 60.0)
+  The angular width of the light cone drawn on the radar panel.
+
+---
+
 ## Where to change things
 
 - **Distance/accuracy thresholds and trigger radius:**  
