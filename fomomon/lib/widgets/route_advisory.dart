@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import '../config/app_config.dart';
 import '../models/site.dart';
 
 class AdvisoryBanner extends StatelessWidget {
@@ -25,7 +26,17 @@ class AdvisoryBanner extends StatelessWidget {
       site.lng,
     );
 
-    final message = advisoryFromBearing(bearing, heading);
+    final distance = Geolocator.distanceBetween(
+      user!.latitude,
+      user!.longitude,
+      site.lat,
+      site.lng,
+    );
+
+    final message =
+        distance <= AppConfig.nearSiteMeters
+            ? "You are near the site"
+            : advisoryFromBearing(bearing, heading);
 
     return Center(
       child: Container(

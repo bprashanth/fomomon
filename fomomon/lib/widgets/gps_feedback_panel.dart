@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import '../config/app_config.dart';
 import '../models/site.dart';
 import 'pulsing_dot.dart';
 
@@ -234,7 +235,8 @@ class _CompassPainter extends CustomPainter {
     }
 
     // === 4. Light cone (draw last, always on top) ===
-    const coneSweep = 60.0; // degrees width
+    // Heading-up UX: cone is fixed "up"; world (dots/labels) rotates with heading.
+    final coneSweep = AppConfig.coneSweepDegrees;
     final conePaint =
         Paint()
           ..color = const Color(0xFF00FFFF).withOpacity(
@@ -244,18 +246,18 @@ class _CompassPainter extends CustomPainter {
 
     canvas.save();
     canvas.translate(center.dx, center.dy);
-    canvas.rotate(heading * pi / 180);
+
+    // Arc angles in Flutter are from +X (right), clockwise. We define 0° as "up",
+    // so convert by subtracting 90° to align with canvas angle space.
+    final startDegUp = -coneSweep / 2;
+    final startRad = (startDegUp - 90) * pi / 180;
 
     final conePath =
         Path()
           ..moveTo(0, 0)
           ..arcTo(
             Rect.fromCircle(center: Offset.zero, radius: maxR * 0.9),
-            90 * pi / 180 -
-                coneSweep /
-                    2 *
-                    pi /
-                    180, // start at 90° (down) minus half cone width
+            startRad,
             coneSweep * pi / 180, // sweep the cone width
             false,
           )
