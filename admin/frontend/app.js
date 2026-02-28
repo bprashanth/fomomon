@@ -19,6 +19,7 @@ const sitesList = document.getElementById('sites-list');
 const bucketRootInput = document.getElementById('bucket-root');
 const syncAuthBtn = document.getElementById('sync-auth-btn');
 const loadTelemetryBtn = document.getElementById('load-telemetry-btn');
+const deleteTelemetryBtn = document.getElementById('delete-telemetry-btn');
 const telemetryStatus = document.getElementById('telemetry-status');
 const telemetryTableWrap = document.getElementById('telemetry-table-wrap');
 
@@ -43,6 +44,14 @@ function showAlert(message, type = 'success') {
 
 function hideAlert() {
   alertBox.classList.add('hidden');
+}
+
+function toIST(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (isNaN(d)) return isoString;
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().replace('T', ' ').replace('Z', '') + ' IST';
 }
 
 async function api(path, options = {}) {
@@ -447,7 +456,7 @@ function renderTelemetry(data) {
   }
   const rows = data.events.map((e) => {
     const levelClass = e.level === 'error' ? 'tel-error' : e.level === 'warning' ? 'tel-warning' : 'tel-info';
-    const ts = (e.timestamp || '').replace('T', ' ').replace('Z', '');
+    const ts = toIST(e.timestamp || '');
     const ctx = e.context ? JSON.stringify(e.context, null, 2) : '';
     const ctxHtml = ctx
       ? `<details><summary>ctx</summary><pre>${ctx}</pre></details>`
@@ -472,6 +481,22 @@ function renderTelemetry(data) {
 
 loadTelemetryBtn?.addEventListener('click', () => loadTelemetry());
 
+deleteTelemetryBtn?.addEventListener('click', async () => {
+  if (!currentOrg) {
+    showAlert('Select an org first.', 'error');
+    return;
+  }
+  if (!confirm(`Delete all telemetry logs for "${currentOrg}"? This cannot be undone.`)) return;
+  try {
+    const data = await api(`/api/orgs/${encodeURIComponent(currentOrg)}/telemetry`, { method: 'DELETE' });
+    telemetryTableWrap.innerHTML = '';
+    telemetryStatus.textContent = '';
+    showAlert(`Deleted ${data.deleted} telemetry object(s) for "${currentOrg}".`);
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+});
+
 async function refreshAll() {
   try {
     await loadOrgs();
@@ -491,8 +516,21 @@ useOrgBtn?.addEventListener('click', async () => {
   orgInput.value = '';
   try {
     const prov = await api(`/api/orgs/${encodeURIComponent(currentOrg)}/provision`, { method: 'POST' });
-    const ruleMsg = prov.lifecycle_rule_created ? ' Lifecycle rule created.' : ' Lifecycle rule already in place.';
-    showAlert(`Org "${currentOrg}" provisioned.${ruleMsg}`);
+    const rules = prov.lifecycle_rules || [];
+    let ruleMsg = '';
+    if (rules.length > 0) {
+      const r = rules[0];
+      const days = r.expiry_days != null ? `${r.expiry_days}d` : '?';
+      ruleMsg = ` Lifecycle rule: ${r.prefix} ${days}.`;
+    }
+    if (rules.length > 1) {
+      showAlert(
+        `Org "${currentOrg}" provisioned.${ruleMsg} Warning: ${rules.length} lifecycle rules found — check S3 bucket.`,
+        'error'
+      );
+    } else {
+      showAlert(`Org "${currentOrg}" provisioned.${ruleMsg}`);
+    }
   } catch (err) {
     showAlert(`Provision failed for "${currentOrg}": ${err.message}`, 'error');
   }

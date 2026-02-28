@@ -14,6 +14,12 @@ class CapturedSession {
   String? portraitImageUrl;
   String? landscapeImageUrl;
   bool isUploaded;
+  // Soft-delete flag. Set when the remote sites.json no longer contains this
+  // session's site, indicating the admin deleted the site server-side.
+  // Soft-deleted sessions are excluded from ghost image candidate selection
+  // (SiteSyncService._findFirstUploadedSessionForSite). They are NOT hard-
+  // deleted from disk; a future cleanup pass can do that.
+  bool isDeleted;
 
   CapturedSession({
     required this.sessionId,
@@ -29,6 +35,7 @@ class CapturedSession {
     this.portraitImageUrl = '',
     this.landscapeImageUrl = '',
     this.isUploaded = false,
+    this.isDeleted = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -44,6 +51,7 @@ class CapturedSession {
     'responses': responses.map((r) => r.toJson()).toList(),
     'timestamp': timestamp.toIso8601String(),
     'isUploaded': isUploaded,
+    'isDeleted': isDeleted,
     'userId': userId,
   };
 
@@ -67,6 +75,7 @@ class CapturedSession {
               .toList(),
       timestamp: DateTime.parse(json['timestamp']),
       isUploaded: json['isUploaded'] ?? false,
+      isDeleted: json['isDeleted'] ?? false,
       userId: json['userId'],
     );
   }

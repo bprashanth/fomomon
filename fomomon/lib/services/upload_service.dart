@@ -425,13 +425,15 @@ class UploadService {
   }
 
   /// Removes query and fragment from a URL so stored image URLs never contain ?#
+  ///
+  /// NOTE: do NOT use Uri.replace(query: '', fragment: '').toString() here.
+  /// In Dart, setting query/fragment to '' (empty string) is not the same as
+  /// null — toString() includes '?' for a non-null query and '#' for a
+  /// non-null fragment even when both are empty. That would INTRODUCE '?#'
+  /// onto a clean URL that had neither. Use string splitting instead.
   String _stripQueryAndFragment(String url) {
-    try {
-      final uri = Uri.parse(url);
-      return uri.replace(query: '', fragment: '').toString();
-    } catch (_) {
-      return url;
-    }
+    // Fragment must be stripped first: '?' can legally appear inside a fragment.
+    return url.split('#').first.split('?').first;
   }
 
   // Helper method to properly join URLs, handling trailing slashes

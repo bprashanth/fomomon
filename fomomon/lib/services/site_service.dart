@@ -16,6 +16,7 @@ import '../config/app_config.dart';
 import '../data/guest_sites.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import '../services/local_session_storage.dart';
 import '../services/local_site_storage.dart';
 import '../services/telemetry_service.dart';
 import '../utils/log.dart';
@@ -161,6 +162,11 @@ class SiteService {
       final root = AppConfig.getResolvedBucketRoot();
       String jsonStr;
 
+      // Read cached site IDs NOW, before any fetch overwrites the cache.
+      // _handleSiteDeletions and _logSitesChange both need the pre-fetch state
+      // to detect which sites were removed from the remote.
+      final cachedIds = await _loadCachedSiteIds();
+
       if (root.startsWith("http")) {
         // Presigned GET: bucket + key is equivalent to root + /sites.json (e.g. fomomon + t4gc/sites.json).
         final response = await FetchService.instance.fetch(
@@ -194,6 +200,10 @@ class SiteService {
         return [];
       }
 
+      // Detect changes and handle deletions against the pre-fetch cache snapshot.
+      _logSitesChange(sites, cachedIds);
+      await _handleSiteDeletions(sites, cachedIds);
+
       dLog("Ensuring cached images for ${sites.length} sites");
 
       for (final site in sites) {
@@ -223,12 +233,14 @@ class SiteService {
           remoteUrl: portraitUrl,
           remoteFileName: portraitFileName,
           siteId: site.id,
+          orientation: 'portrait',
         );
 
         site.localLandscapePath = await _ensureCachedImage(
           remoteUrl: landscapeUrl,
           remoteFileName: landscapeFileName,
           siteId: site.id,
+          orientation: 'landscape',
         );
 
         dLog(
@@ -291,9 +303,26 @@ class SiteService {
         return;
       }
 
+      // Detect changes before overwriting the cache.
+      final cachedIds = await _loadCachedSiteIds();
+
       // Cache the fresh data
       await _cacheSitesJson(response.body);
       dLog("Background fetch: Successfully cached fresh sites data");
+
+      // Log any new sites now that the cache has been refreshed.
+      final data = jsonDecode(response.body);
+      final freshSites =
+          (data['sites'] as List)
+              .map(
+                (s) => Site.fromJson(
+                  s as Map<String, dynamic>,
+                  data['bucket_root'] as String,
+                ),
+              )
+              .toList();
+      _logSitesChange(freshSites, cachedIds);
+      await _handleSiteDeletions(freshSites, cachedIds);
 
       _prefetchImagesInBackground(response.body);
     } catch (e) {
@@ -338,11 +367,13 @@ class SiteService {
           remoteUrl: landscapeUrl,
           remoteFileName: landscapeFileName,
           siteId: site.id,
+          orientation: 'landscape',
         );
         final portraitPath = await _ensureCachedImage(
           remoteUrl: portraitUrl,
           remoteFileName: portraitFileName,
           siteId: site.id,
+          orientation: 'portrait',
         );
 
         // Set the local paths on the site object
@@ -362,10 +393,29 @@ class SiteService {
     }
   }
 
-  static Future<String> _ensureCachedImage({
+  /// Downloads and caches a ghost reference image, returning the local path on
+  /// success or null if the file could not be obtained.
+  ///
+  /// Returns null (never throws) in two cases:
+  ///   1. The download failed (non-200 or network error).
+  ///   2. The file is absent from disk even after the attempt.
+  /// In both cases a [TelemetryPivot.referenceImageFetchFailed] event is
+  /// logged.
+  /// Callers must check for null before constructing a FileImage/Image.file -
+  /// passing a non-existent path to Image.file() raises PathNotFoundException.
+  ///
+  /// @param remoteUrl: The full URL of the remote image to fetch.
+  /// @param remoteFileName: The filename of the image. This same name is used
+  ///   locally to store the image.
+  /// @param siteId: The siteID. This is encoded into the storage path for the
+  ///   image.
+  /// @param orientation: The orientation of the image to fetch. This is only
+  ///   used for telemetry.
+  static Future<String?> _ensureCachedImage({
     required String remoteUrl,
     required String remoteFileName,
     required String siteId,
+    required String orientation,
   }) async {
     dLog(
       "site_service: Ensuring cached image: $remoteUrl, $remoteFileName, $siteId",
@@ -383,6 +433,7 @@ class SiteService {
       dLog(
         "site_service: Local file does not exist, fetching image from $remoteUrl",
       );
+      int? statusCode;
       try {
         // App bucket uses presigned GET (bucket + s3KeyFromUrl(remoteUrl)); other URLs use plain GET (e.g. fomomonguest).
         // Example: remoteUrl https://fomomon.s3.../t4gc/foo.jpg
@@ -394,18 +445,130 @@ class SiteService {
                   FetchService.s3KeyFromUrl(remoteUrl),
                 )
                 : await http.get(Uri.parse(remoteUrl));
+        statusCode = res.statusCode;
         if (res.statusCode == 200) {
           await localFile.writeAsBytes(res.bodyBytes);
         } else {
-          dLog('site_service: Failed to download ghost image from $remoteUrl');
+          dLog(
+            'site_service: Failed to download ghost image from $remoteUrl (HTTP $statusCode)',
+          );
+          TelemetryService.instance.log(
+            TelemetryLevel.warning,
+            TelemetryPivot.referenceImageFetchFailed,
+            'Ghost image download failed for $siteId ($orientation)',
+            context: {
+              'siteId': siteId,
+              'orientation': orientation,
+              'remoteUrl': remoteUrl,
+              'statusCode': statusCode,
+            },
+          );
         }
       } catch (e) {
         dLog('site_service: Error downloading ghost image: $e');
+        TelemetryService.instance.log(
+          TelemetryLevel.warning,
+          TelemetryPivot.referenceImageFetchFailed,
+          'Ghost image download error for $siteId ($orientation)',
+          error: e,
+          context: {
+            'siteId': siteId,
+            'orientation': orientation,
+            'remoteUrl': remoteUrl,
+            'statusCode': null,
+          },
+        );
       }
     } else {
       dLog("site_service: Local file exists, skipping fetch");
     }
+
+    // Return null if the file doesn't exist — the download either failed or was
+    // never attempted. Callers treat null as "no reference image available".
+    if (!await localFile.exists()) return null;
     return localPath;
+  }
+
+  /// Returns the set of site IDs currently in the local cache, or an empty
+  /// set if no cache exists yet. Used to detect remote changes.
+  static Future<Set<String>> _loadCachedSiteIds() async {
+    try {
+      final dir = await _getCacheDir();
+      final cacheFile = File('${dir.path}/sites.json');
+      if (!await cacheFile.exists()) return {};
+      final data = jsonDecode(await cacheFile.readAsString());
+      return {for (final s in data['sites'] as List) s['id'] as String};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Logs a sitesUpdated event when [remoteSites] and [cachedIds] diverge in
+  /// either direction:
+  ///   - remote-only: IDs in remote sites.json not present in local cache
+  ///   - local-only:  IDs in local cache not present in remote sites.json
+  /// Fires as warning when local-only sites exist (remote gap), info otherwise.
+  /// ID lists are truncated to 3 entries + '...' if longer.
+  static void _logSitesChange(List<Site> remoteSites, Set<String> cachedIds) {
+    final remoteIds = remoteSites.map((s) => s.id).toSet();
+    final newRemoteIds = remoteIds.difference(cachedIds).toList()..sort();
+    final localOnlyIds = cachedIds.difference(remoteIds).toList()..sort();
+    if (newRemoteIds.isEmpty && localOnlyIds.isEmpty) return;
+
+    dLog(
+      'site_service: Sites changed: newRemoteIds: $newRemoteIds, localOnlyIds: $localOnlyIds',
+    );
+
+    List<dynamic> truncate(List<String> ids) {
+      final preview = ids.take(3).toList();
+      return ids.length > 3 ? [...preview, '...'] : preview;
+    }
+
+    final level =
+        localOnlyIds.isNotEmpty ? TelemetryLevel.warning : TelemetryLevel.info;
+    final parts = <String>[];
+    if (newRemoteIds.isNotEmpty)
+      parts.add('${newRemoteIds.length} remote-only');
+    if (localOnlyIds.isNotEmpty) parts.add('${localOnlyIds.length} local-only');
+
+    TelemetryService.instance.log(
+      level,
+      TelemetryPivot.sitesUpdated,
+      'Site mismatch: ${parts.join(', ')}',
+      context: {
+        'newSiteIds': truncate(newRemoteIds),
+        'localOnlySiteIds': truncate(localOnlyIds),
+        'totalRemote': remoteIds.length,
+        'totalLocal': cachedIds.length,
+      },
+    );
+  }
+
+  /// Hard-deletes site objects and soft-deletes sessions for any site that was
+  /// in [cachedIds] but is absent from [remoteSites].
+  ///
+  /// Called whenever a fresh remote sites.json is compared against the local
+  /// cache (both synchronous and background fetch paths). The absence of a
+  /// site from the remote is treated as an admin deletion.
+  ///
+  /// Site objects are hard-deleted from local_sites.json (small, safe).
+  /// Sessions are soft-deleted (isDeleted flag set) so stale S3 image URLs
+  /// from the deleted site cannot be selected as ghost image candidates if
+  /// the same site ID is later re-created. Files remain on disk for now.
+  static Future<void> _handleSiteDeletions(
+    List<Site> remoteSites,
+    Set<String> cachedIds,
+  ) async {
+    final remoteIds = remoteSites.map((s) => s.id).toSet();
+    final deletedIds = cachedIds.difference(remoteIds);
+    if (deletedIds.isEmpty) return;
+    for (final id in deletedIds) {
+      dLog(
+        'site_service: Site $id removed from remote — hard-deleting site object, soft-deleting sessions',
+      );
+      await LocalSiteStorage.deleteLocalSite(id);
+      await LocalSessionStorage.softDeleteSessionsForSite(id);
+    }
   }
 
   static Future<void> _cacheSitesJson(String jsonStr) async {

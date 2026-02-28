@@ -119,6 +119,24 @@ class LocalSessionStorage {
     }
   }
 
+  /// Soft-delete all sessions for [siteId] by setting [CapturedSession.isDeleted].
+  ///
+  /// Does NOT delete files from disk. Soft-deleted sessions are excluded from
+  /// ghost image candidate selection in SiteSyncService so stale S3 image URLs
+  /// (from an admin-deleted site) are never used for a re-created site.
+  /// A future hard-delete sweep can clean up the files later.
+  static Future<void> softDeleteSessionsForSite(String siteId) async {
+    final sessions = await loadAllSessions();
+    final matching = sessions.where((s) => s.siteId == siteId).toList();
+    for (final session in matching) {
+      session.isDeleted = true;
+      await saveSession(session);
+      dLog(
+        'local_session_storage: Soft-deleted session ${session.sessionId} for site $siteId',
+      );
+    }
+  }
+
   /// Mark a session as uploaded and persist its full state, including
   /// portrait/landscape image URLs.
   /// Why is this important? 1. Consistency 2. SiteSyncService needs the URLs

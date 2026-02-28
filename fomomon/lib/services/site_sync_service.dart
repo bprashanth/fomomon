@@ -121,6 +121,9 @@ class SiteSyncService {
           continue;
         }
 
+        dLog(
+          'site_sync: Extracting relative paths for site ${local.id}: portrait: ${session.portraitImageUrl}, landscape: ${session.landscapeImageUrl}',
+        );
         final portraitRel = _extractRelativePath(
           session.portraitImageUrl!,
           bucketRoot,
@@ -137,13 +140,19 @@ class SiteSyncService {
           continue;
         }
 
+        dLog(
+          'site_sync: Extracted relative paths for site ${local.id}: portrait: $portraitRel, landscape: $landscapeRel',
+        );
+
         final newSite = Site(
           id: local.id,
           lat: local.lat,
           lng: local.lng,
           referencePortrait: portraitRel,
           referenceLandscape: landscapeRel,
-          referenceHeading: session.heading, // first uploaded session sets ref heading for new sites
+          referenceHeading:
+              session
+                  .heading, // first uploaded session sets ref heading for new sites
           bucketRoot: bucketRoot,
           surveyQuestions: local.surveyQuestions,
           isLocalSite: false,
@@ -182,6 +191,27 @@ class SiteSyncService {
       );
 
       dLog('site_sync: Successfully synced sites.json to remote');
+
+      // Write the updated sites.json to local cache so the app immediately
+      // reflects the new sites without waiting for a fresh S3 fetch.
+      await _writeCacheSitesJson(updatedData);
+
+      // Remove each newly-synced site from local_sites.json. They are now
+      // part of the canonical remote sites.json (also in local cache above),
+      // so the device will continue to see them. Crucially, if an admin later
+      // deletes the site on the server, the next login's fresh fetch will
+      // overwrite the local cache and the site will disappear — it won't be
+      // re-synced because it no longer exists in local_sites.json.
+      for (final site in newRemoteSites) {
+        await LocalSiteStorage.deleteLocalSite(site.id);
+        dLog(
+          'site_sync: Removed ${site.id} from local_sites.json (promoted to remote sites.json)',
+        );
+        // Sessions are intentionally NOT deleted or soft-deleted here.
+        // Soft deletion of sessions only happens when remote sites.json drops a
+        // site relative to the local cache (admin delete flow), detected in
+        // SiteService._handleSiteDeletions at the next sites.json fetch.
+      }
     } catch (e, st) {
       dLog('site_sync: Failed to sync sites.json: $e');
       dLog(st.toString());
@@ -238,6 +268,22 @@ class SiteSyncService {
     }
   }
 
+  /// Write [data] (a sites.json map) to the local cache file so subsequent
+  /// calls to [_loadRemoteSitesFromCache] see the updated content immediately.
+  /// Mirrors the cache path used by [_loadRemoteSitesFromCache]. Never throws.
+  static Future<void> _writeCacheSitesJson(Map<String, dynamic> data) async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final cacheDir = Directory('${dir.path}/cache');
+      if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
+      final cacheFile = File('${cacheDir.path}/sites.json');
+      await cacheFile.writeAsString(jsonEncode(data));
+      dLog('site_sync: Updated local cache with synced sites.json');
+    } catch (e) {
+      dLog('site_sync: Failed to update local cache after sync: $e');
+    }
+  }
+
   /// Find the first uploaded session (by timestamp ascending) for a given site.
   static CapturedSession? _findFirstUploadedSessionForSite(
     String siteId,
@@ -246,6 +292,9 @@ class SiteSyncService {
     CapturedSession? candidate;
     for (final s in sessions) {
       if (s.siteId != siteId) continue;
+      // Exclude soft-deleted sessions: their S3 image URLs may point to objects
+      // that the admin has already deleted alongside the site.
+      if (s.isDeleted) continue;
       if (candidate == null || s.timestamp.isBefore(candidate.timestamp)) {
         candidate = s;
       }
@@ -269,8 +318,10 @@ class SiteSyncService {
               : bucketRoot;
 
       // Strip query parameters/fragments.
-      final uri = Uri.parse(fullUrl);
-      final urlWithoutQuery = uri.replace(query: '', fragment: '').toString();
+      // NOTE: Uri.replace(query: '', fragment: '').toString() would INTRODUCE
+      // '?#' on a clean URL (Dart treats '' ≠ null in URI toString).
+      // Use string splitting instead.
+      final urlWithoutQuery = fullUrl.split('#').first.split('?').first;
 
       final idx = urlWithoutQuery.indexOf(normalizedRoot);
       if (idx == -1) {

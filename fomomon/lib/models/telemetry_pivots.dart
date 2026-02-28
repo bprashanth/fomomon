@@ -42,6 +42,21 @@ class TelemetryPivot {
   /// Logged from: site_service.dart
   static const String siteFetchCacheFallback = 'site_fetch_cache_fallback';
 
+  /// Remote sites.json and local cache have diverged in either direction.
+  /// Fires as warning when local-only sites exist (not in remote), info when
+  /// only new remote sites appear.
+  /// context: { 'newSiteIds': [...], 'localOnlySiteIds': [...],
+  ///            'totalRemote': n, 'totalLocal': n }
+  /// Logged from: site_service.dart
+  static const String sitesUpdated = 'sites_updated';
+
+  /// A reference (ghost) image could not be downloaded from S3.
+  /// The site will show no reference overlay during capture.
+  /// context: { 'siteId': id, 'orientation': 'portrait'|'landscape',
+  ///            'remoteUrl': url, 'statusCode': n|null }
+  /// Logged from: site_service.dart
+  static const String referenceImageFetchFailed = 'reference_image_fetch_failed';
+
   // - 3. GPS (during field work) -
   // Permission must be granted before the map and proximity trigger work.
 

@@ -125,6 +125,8 @@ never pass an inline string.
 | `loginFailed` | `login_failed` | error | `login()` failed (wrong credentials, network, Cognito) | `login_screen.dart` |
 | `siteFetchFailed` | `site_fetch_failed` | error | `sites.json` could not be fetched from S3 | `site_service.dart` |
 | `siteFetchCacheFallback` | `site_fetch_cache_fallback` | warning | Network fetch failed; using cached `sites.json` (possibly stale) | `site_service.dart` |
+| `sitesUpdated` | `sites_updated` | info/warning | Remote `sites.json` and local cache have diverged. `warning` when local-only sites exist (not in remote); `info` when only new remote sites appear. context: `{newSiteIds: [...], localOnlySiteIds: [...], totalRemote: n, totalLocal: n}` | `site_service.dart` |
+| `referenceImageFetchFailed` | `reference_image_fetch_failed` | warning | Ghost reference image could not be downloaded (HTTP error or network failure); site shows no overlay during capture. context: `{siteId, orientation, remoteUrl, statusCode}` | `site_service.dart` |
 | `gpsPermissionDenied` | `gps_permission_denied` | warning | Location service disabled or permission denied | `gps_service.dart` |
 | `sessionCaptured` | `session_captured` | info | Session saved at end of capture pipeline | `survey_screen.dart` |
 | `tokenRefreshFailed` | `token_refresh_failed` | warning | Cognito session expired and could not be refreshed before upload | `upload_service.dart` |
