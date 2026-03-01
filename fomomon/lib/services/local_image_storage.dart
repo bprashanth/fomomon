@@ -4,13 +4,22 @@
 /// the correct backend at compile time via the conditional export below:
 ///   - Native (Android / iOS): [local_image_storage_native.dart] — writes
 ///     bytes to `{docsDir}/images/{key}` via dart:io File.
-///   - Web (Chrome / Safari): [local_image_storage_web.dart] — holds bytes
-///     in a static in-memory `Map<String, Uint8List>` keyed by a `web_img:`
-///     prefix (e.g. `web_img:portrait_20240101_120000.jpg`).
+///   - Web (Chrome / Safari): [local_image_storage_web.dart] — persists bytes
+///     in IndexedDB (`fomomon_images` database) and caches them in a
+///     `Map<String, Uint8List>` for synchronous access. Images survive tab
+///     close, page reload, and PWA backgrounding.
+///
+/// **Startup**: call [LocalImageStorage.initStorage()] before runApp().
+///   - Native: no-op.
+///   - Web: opens IDB and pre-loads all stored entries into the in-memory
+///     cache so [readBytes] stays synchronous.
 ///
 /// **Interface** — all backends expose the same static API:
 ///
 /// ```dart
+///   static Future<void>     initStorage()
+///     // Must be called once before runApp(). No-op on native.
+///
 ///   static Future<String>   saveImage(Uint8List bytes, String key)
 ///     // → returns absolute path on native, 'web_img:{key}' on web.
 ///
@@ -21,16 +30,16 @@
 ///   })
 ///     // Legacy entry point called by confirm_screen. On native, copies
 ///     // the file to the permanent images directory if it isn't there yet.
-///     // On web, the bytes are already in the store; returns tempPath as-is.
+///     // On web, bytes are already in the store; returns tempPath as-is.
 ///
 ///   static Uint8List        readBytes(String path)
-///     // Synchronous. Native: File.readAsBytesSync(). Web: map lookup.
+///     // Synchronous. Native: File.readAsBytesSync(). Web: cache lookup.
 ///
 ///   static bool             imageExists(String path)
-///     // Synchronous. Native: File.existsSync(). Web: map.containsKey().
+///     // Synchronous. Native: File.existsSync(). Web: cache.containsKey().
 ///
 ///   static Future<void>     deleteImage(String path)
-///     // Native: File.delete(). Web: map.remove().
+///     // Native: File.delete(). Web: cache.remove() + IDB.delete().
 /// ```
 ///
 /// **Migration call-map** (old dart:io → this cross-platform API):
@@ -59,17 +68,5 @@
 ///   // AFTER
 ///   await LocalImageStorage.deleteImage(path);
 /// ```
-///
-/// **Web caveat — SESSION-SCOPED STORAGE**
-///   Images are stored in-memory for the duration of the browser tab's
-///   lifetime. Closing the tab, navigating away, or reloading the page
-///   clears ALL images. This means:
-///     - Unsent sessions whose images have not been uploaded will lose their
-///       image data on reload, even though the session metadata in
-///       SharedPreferences persists.
-///     - The "offline-then-upload-later" pattern does NOT work on web with
-///       this backend. Capture and upload must happen within the same session.
-///   For persistent image storage on web, replace this backend with the
-///   IndexedDB backend (Stage 1). See docs/v2/cross_platform_backends.md.
 export 'local_image_storage_native.dart'
     if (dart.library.html) 'local_image_storage_web.dart';

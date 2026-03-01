@@ -11,7 +11,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/site.dart';
 import '../models/telemetry_event.dart';
 import '../models/telemetry_pivots.dart';
@@ -20,12 +19,12 @@ import '../data/guest_sites.dart';
 import '../services/local_image_storage.dart';
 import '../services/local_session_storage.dart';
 import '../services/local_site_storage.dart';
+import '../services/sites_cache_storage.dart';
 import '../services/telemetry_service.dart';
 import '../utils/log.dart';
 import '../utils/file_bytes.dart';
 import 'fetch_service.dart';
 
-// SharedPreferences keys for web caching
 const String _kSitesCacheKey = 'sites_cache';
 
 class SiteService {
@@ -471,17 +470,9 @@ class SiteService {
 
   static Future<Set<String>> _loadCachedSiteIds() async {
     try {
-      if (kIsWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        final json = prefs.getString(_kSitesCacheKey);
-        if (json == null) return {};
-        final data = jsonDecode(json);
-        return {for (final s in data['sites'] as List) s['id'] as String};
-      }
-      final docsDir = await getDocsDirPath();
-      final cacheFile = '$docsDir/cache/sites.json';
-      if (!await fileExistsAsync(cacheFile)) return {};
-      final data = jsonDecode(await readFileString(cacheFile));
+      final json = await SitesCacheStorage.read(_kSitesCacheKey);
+      if (json == null) return {};
+      final data = jsonDecode(json);
       return {for (final s in data['sites'] as List) s['id'] as String};
     } catch (_) {
       return {};
@@ -540,16 +531,8 @@ class SiteService {
 
   static Future<void> _cacheSitesJson(String jsonStr) async {
     try {
-      if (kIsWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_kSitesCacheKey, jsonStr);
-        dLog("Cached sites.json to SharedPreferences");
-        return;
-      }
-      final docsDir = await getDocsDirPath();
-      await ensureDirectory('$docsDir/cache');
-      await writeFileString('$docsDir/cache/sites.json', jsonStr);
-      dLog("Cached sites.json successfully");
+      await SitesCacheStorage.write(_kSitesCacheKey, jsonStr);
+      dLog("Cached sites.json");
     } catch (e) {
       dLog("Failed to cache sites.json: $e");
     }
@@ -564,16 +547,8 @@ class SiteService {
         'bucket_root': bucketRoot,
         'sites': sites.map((site) => site.toJson()).toList(),
       };
-      final updatedJsonStr = jsonEncode(updatedData);
-      if (kIsWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_kSitesCacheKey, updatedJsonStr);
-        dLog("Updated cached sites.json (SharedPreferences) with local paths");
-        return;
-      }
-      final docsDir = await getDocsDirPath();
-      await writeFileString('$docsDir/cache/sites.json', updatedJsonStr);
-      dLog("Updated cached sites.json with local paths successfully");
+      await SitesCacheStorage.write(_kSitesCacheKey, jsonEncode(updatedData));
+      dLog("Updated cached sites.json with local paths");
     } catch (e) {
       dLog("Failed to update cached sites.json with local paths: $e");
     }
@@ -581,21 +556,11 @@ class SiteService {
 
   static Future<List<Site>> _loadCachedSites() async {
     try {
-      String? jsonStr;
-      if (kIsWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        jsonStr = prefs.getString(_kSitesCacheKey);
-      } else {
-        final docsDir = await getDocsDirPath();
-        final cacheFile = '$docsDir/cache/sites.json';
-        if (!await fileExistsAsync(cacheFile)) {
-          dLog("No cached sites.json found");
-          return [];
-        }
-        jsonStr = await readFileString(cacheFile);
+      final jsonStr = await SitesCacheStorage.read(_kSitesCacheKey);
+      if (jsonStr == null) {
+        dLog("No cached sites.json found");
+        return [];
       }
-
-      if (jsonStr == null) return [];
       final data = jsonDecode(jsonStr);
 
       final List<Site> sites =

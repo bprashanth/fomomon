@@ -9,8 +9,8 @@ Progressive Web App that also runs in Chrome / Safari.
 
 | Stage | Description | Status |
 |-------|-------------|--------|
-| **Stage 0** | Compilation + runtime fixes; runs on localhost; core flow verified | ✅ Complete |
-| **Stage 1** | IndexedDB for image persistence across page reloads | ⬜ Pending |
+| **Stage 0** | Compilation + runtime fixes; core flow verified; deployed to Netlify | ✅ Complete |
+| **Stage 1** | IndexedDB image persistence + storage layer cleanup | ✅ Complete |
 | **Stage 2** | iOS deployment (no new code expected) | ⬜ Pending |
 
 ---
@@ -40,6 +40,15 @@ Progressive Web App that also runs in Chrome / Safari.
 - Images lost on page reload — must capture and upload in one browser session
 - Auth token in localStorage (unencrypted) — acceptable for localhost
 - Compass heading overlay disabled on web — no magnetometer in browser
+
+### Known issues (to fix)
+
+- **Screen orientation not flipping back after landscape capture on web**: The confirm
+  screen calls `lockScreenOrientation('portrait')` which calls `screen.orientation.lock('portrait')`,
+  but Chrome may not honour this when the installed PWA is not in fullscreen mode.
+  The screen stays in landscape after the second capture. Investigate whether
+  `screen.orientation.unlock()` followed by a delayed `lock('portrait')` resolves it,
+  or whether a `ResizeObserver` / `orientationchange` event approach is needed.
 
 ---
 
@@ -114,30 +123,26 @@ s3://{bucket}/{org}/telemetry/{date}/{userId}_{epoch}.json
 
 ---
 
-## Stage 1 — IndexedDB Image Persistence (Pending)
+## Stage 1 — IndexedDB + Storage Layer Cleanup (Complete)
 
-### Goal
+### What was done
 
-Replace `local_image_storage_web.dart` (in-memory Map) with an IndexedDB backend
-so image bytes survive page reloads and the "upload later" pattern works on web.
+| Change | Files |
+|--------|-------|
+| IndexedDB backend with write-through in-memory cache | `local_image_storage_web.dart` (full rewrite) |
+| `initStorage()` no-op on native to match web interface | `local_image_storage_native.dart` |
+| Call `initStorage()` before `runApp()` | `lib/main.dart` |
+| `SitesCacheStorage` conditional export (eliminates `kIsWeb` from site services) | `sites_cache_storage.dart` + `*_native.dart` + `*_web.dart` |
+| Removed `kIsWeb` + SharedPreferences from site_service cache methods | `site_service.dart` |
+| Removed `kIsWeb`, SharedPreferences, file_bytes imports entirely | `site_sync_service.dart` |
 
-### Changes required
+See [`idb.md`](../../../v2/pwa/idb.md) for the full design and [`pwa_design.md`](pwa_design.md) for the testing checklist.
 
-1. Add `idb_shim` (or `sembast_web`) to `pubspec.yaml`
-2. Create `lib/services/local_image_storage_idb.dart`:
-   - `saveImage(bytes, key)` → async IDB `objectStore.put(bytes, key)`
-   - `readBytes(path)` — if must stay sync, pre-load into a memory cache on startup
-   - `deleteImage(path)` → `objectStore.delete(key)`
-3. Update `local_image_storage.dart` conditional export to select IDB on web
-4. Update `site_service._ensureCachedImage` on web: download + store in IDB on
-   first access; return local key on subsequent calls (removes online-only constraint)
-5. Add Web Crypto API encryption wrapper for the refresh token in localStorage
+### Known gaps remaining after Stage 1
 
-### Testing Stage 1
-
-- Capture photos → close and reopen the tab → session images still display ✅
-- Ghost overlay loads after going offline (if downloaded once) ✅
-- Auth token is encrypted in localStorage ✅
+- `_ensureCachedImage` web branch re-fetches S3 on every launch (missing `imageExists()` check)
+- Screen orientation not flipping back after landscape capture on web
+- Auth token unencrypted in localStorage
 
 ---
 
