@@ -5,37 +5,31 @@
 /// - fetchSitesAndPrefetchImages(): List<Site>
 ///
 /// The list of sites object returned contains local paths to the reference
-/// images.
+/// images on native, and 'web_img:' in-memory keys on web (fetched with auth).
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/site.dart';
 import '../models/telemetry_event.dart';
 import '../models/telemetry_pivots.dart';
 import '../config/app_config.dart';
 import '../data/guest_sites.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
+import '../services/local_image_storage.dart';
 import '../services/local_session_storage.dart';
 import '../services/local_site_storage.dart';
 import '../services/telemetry_service.dart';
 import '../utils/log.dart';
+import '../utils/file_bytes.dart';
 import 'fetch_service.dart';
-import 'package:flutter/services.dart';
+
+// SharedPreferences keys for web caching
+const String _kSitesCacheKey = 'sites_cache';
 
 class SiteService {
-  static Future<Directory> _getCacheDir() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory('${dir.path}/cache');
-    if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
-    return cacheDir;
-  }
-
-  /// Returns true if [url] points at this app's S3 bucket (same bucket + region as AppConfig).
-  /// Used to decide whether to fetch via presigned GET (app bucket) or plain HTTP (e.g. guest bucket).
-  ///
-  /// Example: true for https://fomomon.s3.ap-south-1.amazonaws.com/t4gc/sites.json
-  ///          false for https://fomomonguest.s3.ap-south-1.amazonaws.com/...
+  /// Returns true if [url] points at this app's S3 bucket.
   static bool _isAppBucketUrl(String url) {
     final host = Uri.parse(url).host;
     return host ==
@@ -46,7 +40,6 @@ class SiteService {
   static Future<List<Site>> fetchSitesAndPrefetchImages({
     bool async = false,
   }) async {
-    // Check if we're in guest mode
     if (AppConfig.isGuestMode) {
       dLog("Guest mode: Loading guest sites");
       final guestSites = await _loadGuestSites();
@@ -54,7 +47,6 @@ class SiteService {
       return _mergeSites(guestSites, localSites);
     }
 
-    // If async mode is enabled, try to return cached data immediately
     if (async) {
       try {
         final cachedSites = await _loadCachedSites();
@@ -62,12 +54,9 @@ class SiteService {
         final mergedSites = _mergeSites(cachedSites, localSites);
         if (cachedSites.isNotEmpty) {
           dLog(
-            "Async mode: Returning ${mergedSites.length} sites (${cachedSites.length} remote + ${localSites.length} local) immediately",
+            "Async mode: Returning ${mergedSites.length} sites immediately",
           );
-
-          // Start background fetch to update cache (uses bucketName + org/sites.json when root is HTTP)
           _fetchAndCacheSitesInBackground();
-
           return mergedSites;
         }
       } catch (e) {
@@ -75,7 +64,6 @@ class SiteService {
       }
     }
 
-    // Synchronous fetch (either async=false or no cached data available)
     final remoteSites = await _fetchSitesSynchronously();
     final localSites = await LocalSiteStorage.loadLocalSites();
     return _mergeSites(remoteSites, localSites);
@@ -99,7 +87,6 @@ class SiteService {
         "Copying guest site assets to local storage for ${sites.length} sites",
       );
 
-      // Copy asset images to local storage and update local paths
       for (final site in sites) {
         if (site.localPortraitPath != null &&
             site.localPortraitPath!.startsWith('assets/')) {
@@ -132,43 +119,37 @@ class SiteService {
     String siteId,
     String imageType,
   ) async {
+    // On web there is no filesystem. Return the asset path as-is;
+    // ghost images for guest sites will be skipped on web.
+    if (kIsWeb) return assetPath;
+
     try {
-      final dir = await _getCacheDir();
-      final guestDir = Directory('${dir.path}/guest_sites');
-      if (!await guestDir.exists()) {
-        await guestDir.create(recursive: true);
-      }
+      final docsDir = await getDocsDirPath();
+      final guestDir = '$docsDir/cache/guest_sites';
+      await ensureDirectory(guestDir);
 
-      final filename = '${siteId}_${imageType}.jpg';
-      final localPath = '${guestDir.path}/$filename';
+      final filename = '${siteId}_$imageType.jpg';
+      final localPath = '$guestDir/$filename';
 
-      // Load asset as bytes and write to local file
       final byteData = await rootBundle.load(assetPath);
-      final file = File(localPath);
-      await file.writeAsBytes(byteData.buffer.asUint8List());
+      await writeFileBytes(localPath, byteData.buffer.asUint8List());
 
       dLog("Copied asset $assetPath to $localPath");
       return localPath;
     } catch (e) {
       dLog("Error copying asset $assetPath: $e");
-      return assetPath; // Return original path if copy fails
+      return assetPath;
     }
   }
 
-  /// Fetches sites.json from remote (presigned GET) or local file according to [AppConfig.getResolvedBucketRoot].
-  /// HTTP root → FetchService.fetch(bucketName, "org/sites.json"); file:// root → read local file.
   static Future<List<Site>> _fetchSitesSynchronously() async {
     try {
       final root = AppConfig.getResolvedBucketRoot();
       String jsonStr;
 
-      // Read cached site IDs NOW, before any fetch overwrites the cache.
-      // _handleSiteDeletions and _logSitesChange both need the pre-fetch state
-      // to detect which sites were removed from the remote.
       final cachedIds = await _loadCachedSiteIds();
 
       if (root.startsWith("http")) {
-        // Presigned GET: bucket + key is equivalent to root + /sites.json (e.g. fomomon + t4gc/sites.json).
         final response = await FetchService.instance.fetch(
           AppConfig.bucketName,
           "${AppConfig.org}/sites.json",
@@ -176,18 +157,16 @@ class SiteService {
         if (response.statusCode != 200) throw Exception("HTTP error");
         jsonStr = response.body;
 
-        // Cache the successful response
         await _cacheSitesJson(jsonStr);
       } else if (root.startsWith("file://")) {
+        if (kIsWeb) throw Exception("file:// scheme not supported on web");
         final path =
             root.endsWith('/') ? '${root}sites.json' : '$root/sites.json';
-        final file = File(Uri.parse(path).toFilePath());
-        jsonStr = await file.readAsString();
+        jsonStr = await readFileString(Uri.parse(path).toFilePath());
       } else {
         throw Exception("Unsupported bucketRoot scheme");
       }
 
-      // TODO(prashanth@): use the prefetchImagesInBackground() function here.
       final data = jsonDecode(jsonStr);
       dLog("Fetched sites: $data");
       final List<Site> sites =
@@ -200,7 +179,6 @@ class SiteService {
         return [];
       }
 
-      // Detect changes and handle deletions against the pre-fetch cache snapshot.
       _logSitesChange(sites, cachedIds);
       await _handleSiteDeletions(sites, cachedIds);
 
@@ -211,7 +189,7 @@ class SiteService {
             site.referencePortrait.isEmpty ||
             site.bucketRoot.isEmpty) {
           dLog(
-            'Skipping site ${site.id} - missing reference images or bucket root: ${site.bucketRoot}',
+            'Skipping site ${site.id} - missing reference images or bucket root',
           );
           continue;
         }
@@ -248,7 +226,6 @@ class SiteService {
         );
       }
 
-      // Update the cached sites.json with local paths
       await _updateCachedSitesWithLocalPaths(sites, data['bucket_root']);
 
       return sites;
@@ -262,7 +239,6 @@ class SiteService {
       );
       dLog("Attempting to load cached sites.json");
 
-      // Try to load from cache
       try {
         final cachedSites = await _loadCachedSites();
         if (cachedSites.isNotEmpty) {
@@ -283,7 +259,6 @@ class SiteService {
     }
   }
 
-  /// Fetches sites.json in background via presigned GET when root is HTTP. No-op for file:// (local test).
   static Future<void> _fetchAndCacheSitesInBackground() async {
     try {
       dLog("Background fetch: Starting to fetch fresh sites data");
@@ -303,14 +278,11 @@ class SiteService {
         return;
       }
 
-      // Detect changes before overwriting the cache.
       final cachedIds = await _loadCachedSiteIds();
 
-      // Cache the fresh data
       await _cacheSitesJson(response.body);
       dLog("Background fetch: Successfully cached fresh sites data");
 
-      // Log any new sites now that the cache has been refreshed.
       final data = jsonDecode(response.body);
       final freshSites =
           (data['sites'] as List)
@@ -362,82 +334,92 @@ class SiteService {
         final landscapeFileName = getFileName(site.referenceLandscape);
         final portraitFileName = getFileName(site.referencePortrait);
 
-        // Prefetch both images and set local paths
-        final landscapePath = await _ensureCachedImage(
+        site.localLandscapePath = await _ensureCachedImage(
           remoteUrl: landscapeUrl,
           remoteFileName: landscapeFileName,
           siteId: site.id,
           orientation: 'landscape',
         );
-        final portraitPath = await _ensureCachedImage(
+        site.localPortraitPath = await _ensureCachedImage(
           remoteUrl: portraitUrl,
           remoteFileName: portraitFileName,
           siteId: site.id,
           orientation: 'portrait',
         );
 
-        // Set the local paths on the site object
-        site.localLandscapePath = landscapePath;
-        site.localPortraitPath = portraitPath;
-
         dLog("Background prefetch: Cached images for site ${site.id}");
       }
 
-      // Update the cached sites.json with local paths
       await _updateCachedSitesWithLocalPaths(sites, data['bucket_root']);
-      dLog("Background prefetch: Updated cache with local paths");
-
       dLog("Background prefetch: Completed for all sites");
     } catch (e) {
       dLog("Background prefetch: Failed to prefetch images: $e");
     }
   }
 
-  /// Downloads and caches a ghost reference image, returning the local path on
-  /// success or null if the file could not be obtained.
+  /// Downloads and caches a ghost reference image.
   ///
-  /// Returns null (never throws) in two cases:
-  ///   1. The download failed (non-200 or network error).
-  ///   2. The file is absent from disk even after the attempt.
-  /// In both cases a [TelemetryPivot.referenceImageFetchFailed] event is
-  /// logged.
-  /// Callers must check for null before constructing a FileImage/Image.file -
-  /// passing a non-existent path to Image.file() raises PathNotFoundException.
+  /// On native: downloads to {docsDir}/ghosts/{siteId}/{remoteFileName} and
+  /// returns the local file path. Subsequent calls return the cached path.
   ///
-  /// @param remoteUrl: The full URL of the remote image to fetch.
-  /// @param remoteFileName: The filename of the image. This same name is used
-  ///   locally to store the image.
-  /// @param siteId: The siteID. This is encoded into the storage path for the
-  ///   image.
-  /// @param orientation: The orientation of the image to fetch. This is only
-  ///   used for telemetry.
+  /// On web: fetches bytes with Cognito auth via FetchService, stores them in
+  /// the in-memory LocalImageStorage under key 'ghost_{siteId}_{orientation}',
+  /// and returns 'web_img:ghost_{siteId}_{orientation}'. capture_screen reads
+  /// these bytes via LocalImageStorage.readBytes() and displays with
+  /// Image.memory() — same code path as native; no Image.network() needed.
+  ///
+  /// ⚠️  ONLINE-ONLY on web ⚠️
+  ///
+  /// On native, ghost images are cached to disk and available offline.
+  /// On web, bytes are in the in-memory store for the duration of the browser
+  /// tab. If the app is reloaded, ghost images are re-fetched on next site
+  /// load (requires network). Stage 1: store in IndexedDB for offline access.
   static Future<String?> _ensureCachedImage({
     required String remoteUrl,
     required String remoteFileName,
     required String siteId,
     required String orientation,
   }) async {
+    // On web: fetch bytes with auth and store in the in-memory image store.
+    // Returns a 'web_img:' key so capture_screen can use Image.memory().
+    // Requires network on every app launch (no persistent cache in Stage 0).
+    if (kIsWeb) {
+      try {
+        final res =
+            _isAppBucketUrl(remoteUrl)
+                ? await FetchService.instance.fetch(
+                  AppConfig.bucketName,
+                  FetchService.s3KeyFromUrl(remoteUrl),
+                )
+                : await http.get(Uri.parse(remoteUrl));
+        if (res.statusCode == 200) {
+          final key = 'ghost_${siteId}_$orientation';
+          return await LocalImageStorage.saveImage(res.bodyBytes, key);
+        }
+        dLog(
+          'site_service: Ghost image fetch returned ${res.statusCode} for $siteId ($orientation)',
+        );
+      } catch (e) {
+        dLog('site_service: Failed to fetch ghost image on web: $e');
+      }
+      return null;
+    }
+
     dLog(
       "site_service: Ensuring cached image: $remoteUrl, $remoteFileName, $siteId",
     );
-    final dir = await getApplicationDocumentsDirectory();
-    final ghostsDir = Directory('${dir.path}/ghosts/$siteId');
-    if (!await ghostsDir.exists()) await ghostsDir.create(recursive: true);
+    final docsDir = await getDocsDirPath();
+    final ghostsDir = '$docsDir/ghosts/$siteId';
+    await ensureDirectory(ghostsDir);
 
-    final localPath = '${ghostsDir.path}/$remoteFileName';
-    final localFile = File(localPath);
+    final localPath = '$ghostsDir/$remoteFileName';
 
-    // Only fetch the image if it doesn't exist locally.
-    // TODO(prashanth@): check timestamps?
-    if (!await localFile.exists()) {
+    if (!await fileExistsAsync(localPath)) {
       dLog(
         "site_service: Local file does not exist, fetching image from $remoteUrl",
       );
       int? statusCode;
       try {
-        // App bucket uses presigned GET (bucket + s3KeyFromUrl(remoteUrl)); other URLs use plain GET (e.g. fomomonguest).
-        // Example: remoteUrl https://fomomon.s3.../t4gc/foo.jpg
-        // -> fetch(fomomon, s3KeyFromUrl(remoteUrl) -> t4gc/foo.jpg)
         final res =
             _isAppBucketUrl(remoteUrl)
                 ? await FetchService.instance.fetch(
@@ -447,7 +429,7 @@ class SiteService {
                 : await http.get(Uri.parse(remoteUrl));
         statusCode = res.statusCode;
         if (res.statusCode == 200) {
-          await localFile.writeAsBytes(res.bodyBytes);
+          await writeFileBytes(localPath, res.bodyBytes);
         } else {
           dLog(
             'site_service: Failed to download ghost image from $remoteUrl (HTTP $statusCode)',
@@ -483,32 +465,29 @@ class SiteService {
       dLog("site_service: Local file exists, skipping fetch");
     }
 
-    // Return null if the file doesn't exist — the download either failed or was
-    // never attempted. Callers treat null as "no reference image available".
-    if (!await localFile.exists()) return null;
+    if (!await fileExistsAsync(localPath)) return null;
     return localPath;
   }
 
-  /// Returns the set of site IDs currently in the local cache, or an empty
-  /// set if no cache exists yet. Used to detect remote changes.
   static Future<Set<String>> _loadCachedSiteIds() async {
     try {
-      final dir = await _getCacheDir();
-      final cacheFile = File('${dir.path}/sites.json');
-      if (!await cacheFile.exists()) return {};
-      final data = jsonDecode(await cacheFile.readAsString());
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        final json = prefs.getString(_kSitesCacheKey);
+        if (json == null) return {};
+        final data = jsonDecode(json);
+        return {for (final s in data['sites'] as List) s['id'] as String};
+      }
+      final docsDir = await getDocsDirPath();
+      final cacheFile = '$docsDir/cache/sites.json';
+      if (!await fileExistsAsync(cacheFile)) return {};
+      final data = jsonDecode(await readFileString(cacheFile));
       return {for (final s in data['sites'] as List) s['id'] as String};
     } catch (_) {
       return {};
     }
   }
 
-  /// Logs a sitesUpdated event when [remoteSites] and [cachedIds] diverge in
-  /// either direction:
-  ///   - remote-only: IDs in remote sites.json not present in local cache
-  ///   - local-only:  IDs in local cache not present in remote sites.json
-  /// Fires as warning when local-only sites exist (remote gap), info otherwise.
-  /// ID lists are truncated to 3 entries + '...' if longer.
   static void _logSitesChange(List<Site> remoteSites, Set<String> cachedIds) {
     final remoteIds = remoteSites.map((s) => s.id).toSet();
     final newRemoteIds = remoteIds.difference(cachedIds).toList()..sort();
@@ -527,8 +506,7 @@ class SiteService {
     final level =
         localOnlyIds.isNotEmpty ? TelemetryLevel.warning : TelemetryLevel.info;
     final parts = <String>[];
-    if (newRemoteIds.isNotEmpty)
-      parts.add('${newRemoteIds.length} remote-only');
+    if (newRemoteIds.isNotEmpty) parts.add('${newRemoteIds.length} remote-only');
     if (localOnlyIds.isNotEmpty) parts.add('${localOnlyIds.length} local-only');
 
     TelemetryService.instance.log(
@@ -544,17 +522,6 @@ class SiteService {
     );
   }
 
-  /// Hard-deletes site objects and soft-deletes sessions for any site that was
-  /// in [cachedIds] but is absent from [remoteSites].
-  ///
-  /// Called whenever a fresh remote sites.json is compared against the local
-  /// cache (both synchronous and background fetch paths). The absence of a
-  /// site from the remote is treated as an admin deletion.
-  ///
-  /// Site objects are hard-deleted from local_sites.json (small, safe).
-  /// Sessions are soft-deleted (isDeleted flag set) so stale S3 image URLs
-  /// from the deleted site cannot be selected as ghost image candidates if
-  /// the same site ID is later re-created. Files remain on disk for now.
   static Future<void> _handleSiteDeletions(
     List<Site> remoteSites,
     Set<String> cachedIds,
@@ -573,9 +540,15 @@ class SiteService {
 
   static Future<void> _cacheSitesJson(String jsonStr) async {
     try {
-      final dir = await _getCacheDir();
-      final cacheFile = File('${dir.path}/sites.json');
-      await cacheFile.writeAsString(jsonStr);
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kSitesCacheKey, jsonStr);
+        dLog("Cached sites.json to SharedPreferences");
+        return;
+      }
+      final docsDir = await getDocsDirPath();
+      await ensureDirectory('$docsDir/cache');
+      await writeFileString('$docsDir/cache/sites.json', jsonStr);
       dLog("Cached sites.json successfully");
     } catch (e) {
       dLog("Failed to cache sites.json: $e");
@@ -587,35 +560,42 @@ class SiteService {
     String bucketRoot,
   ) async {
     try {
-      final dir = await _getCacheDir();
-      final cacheFile = File('${dir.path}/sites.json');
-
-      // Create the updated sites.json structure
       final updatedData = {
         'bucket_root': bucketRoot,
         'sites': sites.map((site) => site.toJson()).toList(),
       };
-
       final updatedJsonStr = jsonEncode(updatedData);
-      await cacheFile.writeAsString(updatedJsonStr);
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kSitesCacheKey, updatedJsonStr);
+        dLog("Updated cached sites.json (SharedPreferences) with local paths");
+        return;
+      }
+      final docsDir = await getDocsDirPath();
+      await writeFileString('$docsDir/cache/sites.json', updatedJsonStr);
       dLog("Updated cached sites.json with local paths successfully");
     } catch (e) {
       dLog("Failed to update cached sites.json with local paths: $e");
-      // Continue with existing behavior - log error but don't fail
     }
   }
 
   static Future<List<Site>> _loadCachedSites() async {
     try {
-      final dir = await _getCacheDir();
-      final cacheFile = File('${dir.path}/sites.json');
-
-      if (!await cacheFile.exists()) {
-        dLog("No cached sites.json found");
-        return [];
+      String? jsonStr;
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        jsonStr = prefs.getString(_kSitesCacheKey);
+      } else {
+        final docsDir = await getDocsDirPath();
+        final cacheFile = '$docsDir/cache/sites.json';
+        if (!await fileExistsAsync(cacheFile)) {
+          dLog("No cached sites.json found");
+          return [];
+        }
+        jsonStr = await readFileString(cacheFile);
       }
 
-      final jsonStr = await cacheFile.readAsString();
+      if (jsonStr == null) return [];
       final data = jsonDecode(jsonStr);
 
       final List<Site> sites =
@@ -631,18 +611,15 @@ class SiteService {
     }
   }
 
-  // Helper method to merge remote and local sites, giving precedence to remote sites
   static List<Site> _mergeSites(List<Site> remoteSites, List<Site> localSites) {
     final mergedSites = <Site>[];
     final seenIds = <String>{};
 
-    // Add remote sites first (they get precedence)
     for (final site in remoteSites) {
       mergedSites.add(site);
       seenIds.add(site.id);
     }
 
-    // Add local sites that don't conflict with remote sites
     for (final site in localSites) {
       if (!seenIds.contains(site.id)) {
         mergedSites.add(site);

@@ -14,7 +14,6 @@
 /// 5. Call onProgress() callback
 
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -30,6 +29,7 @@ import '../services/telemetry_service.dart';
 import '../config/app_config.dart';
 import '../exceptions/auth_exceptions.dart';
 import '../utils/log.dart';
+import '../utils/file_bytes.dart';
 
 /// Fine-grained phases within a single session upload.
 enum UploadPhase { portrait, landscape, sessionJson }
@@ -220,8 +220,7 @@ class UploadService {
       final key = parsed['key']!;
 
       // Read the file
-      final file = File(localPath);
-      final bytes = await file.readAsBytes();
+      final bytes = await readFileBytes(localPath);
       final contentType = _getContentType(localPath);
 
       // Create presigned PUT URL
@@ -253,7 +252,7 @@ class UploadService {
         dLog('upload_service: Response headers: ${response.headers}');
         throw Exception('File upload failed: ${response.statusCode}');
       }
-      // Specifically cath the AuthExceptions thrown by getUploadCredentials()
+      // Specifically catch the AuthExceptions thrown by getUploadCredentials()
       // so we can redirect the user to the login screen.
     } on AuthSessionExpiredException {
       rethrow;
@@ -262,9 +261,6 @@ class UploadService {
     } catch (e) {
       dLog("upload_service: failed auth file upload $e");
       // Fallback to no-auth upload only for non-auth errors (network, etc.)
-      // Why do this? it's a safety valve. In case there's an issue with the
-      // signing code, or anything related to the auth path, we can fallback to
-      // an attempt at non-auth'd upload.
       return await _uploadFileNoAuth(localPath, fullUrl);
     }
   }
@@ -277,9 +273,6 @@ class UploadService {
     final fullUrl = _joinUrls(bucketRoot, remotePath);
 
     // Always try auth path unless in guest mode.
-    // This ensures that if token is missing/expired, getValidToken() will throw
-    // AuthSessionExpiredException, which bubbles up to trigger login redirect.
-    // Guest mode always uses no-auth path to public bucket.
     if (AppConfig.isGuestMode) {
       return await _uploadJsonNoAuth(jsonData, fullUrl);
     }
@@ -291,59 +284,39 @@ class UploadService {
     String fullUrl,
   ) async {
     try {
-      // Get temporary AWS credentials from AuthService
-      // Note: If AuthSessionExpiredException is thrown, we want it to bubble up
-      // to uploadDialWidget so user can be redirected to login. Don't catch it
-      // here.
       final credentials = await authService.getUploadCredentials();
 
-      // Parse bucket and key from the full URL
       final parsed = _parseS3Url(fullUrl);
       final bucket = parsed['bucket']!;
       final key = parsed['key']!;
 
-      // Convert JSON to string
       final jsonString = jsonEncode(jsonData);
-      final jsonBytes = utf8.encode(jsonString);
+      final jsonBytes = const Utf8Codec().encode(jsonString);
 
-      // Create presigned PUT URL for JSON
       final presignedUrl = await _s3SignerService.createPresignedJsonPutUrl(
         bucketName: bucket,
         s3Key: key,
         credentials: credentials,
       );
 
-      // Upload JSON using presigned URL
       final response = await http.put(
         Uri.parse(presignedUrl),
         headers: {'Content-Type': 'application/json'},
         body: jsonBytes,
       );
 
-      // Not every 4xx from s3 is a auth failure. It could be a bucket
-      // misconfig, bad key etc. We rely on a specific AuthException to handle
-      // the login screen, and don't show the login screen uselessly in these
-      // other cases.
-      // Moreover, the AuthExceptions are a signaling mechanism between
-      // getUploadCredentials() and the uploadDialWidget. The former is used to
-      // force the UI to show the login screen. Hence in cases where there is a
-      // genuine auth failure, eg invalid username, we could still hit this
-      // codepath and throw the generic exception.
       if (response.statusCode == 200) {
         dLog('upload_service: Successfully uploaded JSON using presigned URL');
-        return fullUrl; // Return the normal (non-signed) URL
+        return fullUrl;
       } else {
         throw Exception('JSON upload failed: ${response.statusCode}');
       }
-      // Specifically cath the AuthExceptions thrown by getUploadCredentials()
-      // so we can redirect the user to the login screen.
     } on AuthSessionExpiredException {
       rethrow;
     } on AuthCredentialsException {
       rethrow;
     } catch (e) {
       dLog('upload_service: Authenticated JSON upload failed: $e');
-      // Fallback to no-auth upload only for non-auth errors (network, etc.)
       return await _uploadJsonNoAuth(jsonData, fullUrl);
     }
   }
@@ -351,8 +324,7 @@ class UploadService {
   // Internal helper for no-auth file uploads
   Future<String> _uploadFileNoAuth(String localPath, String fullUrl) async {
     dLog("upload_service: uploading NOAUTH FILE to $fullUrl");
-    final file = File(localPath);
-    final bytes = await file.readAsBytes();
+    final bytes = await readFileBytes(localPath);
     final contentType = _getContentType(localPath);
 
     final response = await http.put(
@@ -408,44 +380,26 @@ class UploadService {
 
   /// Parse the bucket details from the full URL
   /// Example fullUrl: https://fomomon.s3.amazonaws.com/t4gc/left_6th/file.jpg
-  /// @returns: Map<String, String>
-  /// {
-  ///   ' bucket': fomomon,
-  ///   'key': t4gc/left_6th/file.jpg,
-  ///   'region': ap-south-1
-  /// }
   Map<String, String> _parseS3Url(String fullUrl) {
     final uri = Uri.parse(fullUrl);
-
     final hostParts = uri.host.split('.');
     final bucket = hostParts.first;
-
     final key = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
     return {'bucket': bucket, 'key': key, 'region': _region};
   }
 
   /// Removes query and fragment from a URL so stored image URLs never contain ?#
-  ///
-  /// NOTE: do NOT use Uri.replace(query: '', fragment: '').toString() here.
-  /// In Dart, setting query/fragment to '' (empty string) is not the same as
-  /// null — toString() includes '?' for a non-null query and '#' for a
-  /// non-null fragment even when both are empty. That would INTRODUCE '?#'
-  /// onto a clean URL that had neither. Use string splitting instead.
   String _stripQueryAndFragment(String url) {
-    // Fragment must be stripped first: '?' can legally appear inside a fragment.
     return url.split('#').first.split('?').first;
   }
 
   // Helper method to properly join URLs, handling trailing slashes
   String _joinUrls(String baseUrl, String path) {
-    // Remove trailing slash from baseUrl if it exists
     final cleanBase =
         baseUrl.endsWith('/')
             ? baseUrl.substring(0, baseUrl.length - 1)
             : baseUrl;
-    // Remove leading slash from path if it exists
     final cleanPath = path.startsWith('/') ? path.substring(1) : path;
-    // Join with a single slash
     return '$cleanBase/$cleanPath';
   }
 
@@ -455,13 +409,10 @@ class UploadService {
 
   bool _isValidLocalPath(String localPath) {
     if (localPath.isEmpty) return false;
-    final file = File(localPath);
-    return file.existsSync();
+    return fileExists(localPath);
   }
 
   bool _isValidPath(String remotePath) {
-    // TODO(prashanth@): add more validation here. Better garbage character
-    // checking.
     return remotePath.isNotEmpty && !remotePath.contains('..');
   }
 }

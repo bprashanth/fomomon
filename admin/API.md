@@ -265,12 +265,31 @@ Returns the Cognito user pool password policy.
 
 ### POST /api/auth_config/sync
 
-Enforces correct IAM and S3 bucket permissions:
+Enforces correct IAM, S3 bucket permissions, and S3 CORS configuration:
 
 1. Ensures the bucket policy allows only `auth_config.json` to be publicly
    readable, and removes any overly-broad public-read statements.
 2. Ensures the Cognito identity pool's authenticated role has
    `s3:ListBucket` + `s3:GetObject` + `s3:PutObject` on the bucket.
+3. Ensures the bucket CORS configuration allows browser clients (PWA, localhost
+   dev servers) to make presigned GET and PUT requests. The rule allows all
+   origins (`*`) so the bucket works with any PWA deployment and any local dev
+   port without listing origins individually.
+
+   CORS rule applied:
+   ```json
+   {
+     "AllowedHeaders": ["*"],
+     "AllowedMethods": ["GET", "PUT", "HEAD"],
+     "AllowedOrigins": ["*"],
+     "ExposeHeaders": ["ETag"],
+     "MaxAgeSeconds": 3600
+   }
+   ```
+
+   Note: `AllowedOrigins: ["*"]` controls only browser-enforced CORS preflight
+   checks. Actual object access is still gated by Cognito credentials and IAM
+   (presigned URLs). This does not make any objects publicly readable.
 
 **Response**
 ```json
@@ -278,10 +297,14 @@ Enforces correct IAM and S3 bucket permissions:
   "ok": true,
   "bucketPolicyChanged": true,
   "rolePolicyChanged": false,
+  "corsChanged": true,
   "roleName": "Cognito_fomomonAuth_Role",
   "publicAccessDetected": false
 }
 ```
+
+`corsChanged` is `true` if the CORS rule was written or updated, `false` if it
+was already in the desired state.
 
 On misconfiguration (missing `auth_config.json`, missing env vars) returns a
 `400` with setup instructions including CLI commands.

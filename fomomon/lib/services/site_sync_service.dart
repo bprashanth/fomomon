@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
 import '../models/captured_session.dart';
@@ -13,6 +13,11 @@ import '../services/local_site_storage.dart';
 import '../services/telemetry_service.dart';
 import '../services/upload_service.dart';
 import '../utils/log.dart';
+import '../utils/file_bytes.dart';
+
+// SharedPreferences key used for web cache in site_sync (kept separate from
+// the key used by site_service so they don't overwrite each other mid-session).
+const String _kSyncCacheKey = 'sites_cache_sync';
 
 /// SiteSyncService
 /// ---------------
@@ -43,7 +48,6 @@ class SiteSyncService {
         return;
       }
 
-      // Determine which local sites are not yet present remotely.
       final remoteIds = <String>{for (final s in remoteSites) s.id};
       final newLocalSites =
           localSites.where((s) => !remoteIds.contains(s.id)).toList();
@@ -55,7 +59,6 @@ class SiteSyncService {
         return;
       }
 
-      // Load sessions to find uploaded ones with image URLs we can use as ghosts.
       final allSessions = await LocalSessionStorage.loadAllSessions();
       final uploadedSessions =
           allSessions.where((s) {
@@ -76,11 +79,6 @@ class SiteSyncService {
       final newRemoteSites = <Site>[];
 
       // --- Existing sites (already in sites.json) ---
-      // remoteSites = sites loaded from cached sites.json (the canonical list).
-      // For each such site we check if this device has any uploaded session for
-      // that site ID. If we do, we update that site's reference_heading from
-      // the first uploaded session (same "first session" rule as ghost images),
-      // then re-upload sites.json so orientation is synced.
       final updatedRemoteSites = <Site>[];
       for (final remote in remoteSites) {
         final session = _findFirstUploadedSessionForSite(
@@ -107,8 +105,6 @@ class SiteSyncService {
       }
 
       // --- New local sites (added on this phone, not yet in sites.json) ---
-      // For each we build a Site entry using the first uploaded session for
-      // ghost images; reference_heading is set here from that same session.
       for (final local in newLocalSites) {
         final session = _findFirstUploadedSessionForSite(
           local.id,
@@ -150,9 +146,7 @@ class SiteSyncService {
           lng: local.lng,
           referencePortrait: portraitRel,
           referenceLandscape: landscapeRel,
-          referenceHeading:
-              session
-                  .heading, // first uploaded session sets ref heading for new sites
+          referenceHeading: session.heading,
           bucketRoot: bucketRoot,
           surveyQuestions: local.surveyQuestions,
           isLocalSite: false,
@@ -192,25 +186,13 @@ class SiteSyncService {
 
       dLog('site_sync: Successfully synced sites.json to remote');
 
-      // Write the updated sites.json to local cache so the app immediately
-      // reflects the new sites without waiting for a fresh S3 fetch.
       await _writeCacheSitesJson(updatedData);
 
-      // Remove each newly-synced site from local_sites.json. They are now
-      // part of the canonical remote sites.json (also in local cache above),
-      // so the device will continue to see them. Crucially, if an admin later
-      // deletes the site on the server, the next login's fresh fetch will
-      // overwrite the local cache and the site will disappear — it won't be
-      // re-synced because it no longer exists in local_sites.json.
       for (final site in newRemoteSites) {
         await LocalSiteStorage.deleteLocalSite(site.id);
         dLog(
           'site_sync: Removed ${site.id} from local_sites.json (promoted to remote sites.json)',
         );
-        // Sessions are intentionally NOT deleted or soft-deleted here.
-        // Soft deletion of sessions only happens when remote sites.json drops a
-        // site relative to the local cache (admin delete flow), detected in
-        // SiteService._handleSiteDeletions at the next sites.json fetch.
       }
     } catch (e, st) {
       dLog('site_sync: Failed to sync sites.json: $e');
@@ -224,16 +206,26 @@ class SiteSyncService {
     }
   }
 
-  /// Load remote sites and bucket_root from the cached sites.json, or fall back
-  /// to an empty list and AppConfig bucketRoot if cache is missing/broken.
+  /// Load remote sites and bucket_root from the cached sites.json.
+  /// On web: reads from SharedPreferences key [_kSyncCacheKey].
+  /// On native: reads from {docsDir}/cache/sites.json.
   static Future<({String bucketRoot, List<Site> sites})>
   _loadRemoteSitesFromCache() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final cacheDir = Directory('${dir.path}/cache');
-      final cacheFile = File('${cacheDir.path}/sites.json');
+      String? jsonStr;
 
-      if (!await cacheFile.exists()) {
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        jsonStr = prefs.getString(_kSyncCacheKey);
+      } else {
+        final docsDir = await getDocsDirPath();
+        final cachePath = '$docsDir/cache/sites.json';
+        if (await fileExistsAsync(cachePath)) {
+          jsonStr = await readFileString(cachePath);
+        }
+      }
+
+      if (jsonStr == null) {
         final bucketRoot = AppConfig.getResolvedBucketRoot();
         dLog(
           'site_sync: No cached remote sites.json found, starting fresh with bucketRoot=$bucketRoot',
@@ -241,7 +233,6 @@ class SiteSyncService {
         return (bucketRoot: bucketRoot, sites: <Site>[]);
       }
 
-      final jsonStr = await cacheFile.readAsString();
       final data = jsonDecode(jsonStr) as Map<String, dynamic>;
       final bucketRoot =
           (data['bucket_root'] as String?) ?? AppConfig.getResolvedBucketRoot();
@@ -268,16 +259,20 @@ class SiteSyncService {
     }
   }
 
-  /// Write [data] (a sites.json map) to the local cache file so subsequent
-  /// calls to [_loadRemoteSitesFromCache] see the updated content immediately.
-  /// Mirrors the cache path used by [_loadRemoteSitesFromCache]. Never throws.
+  /// Write [data] to the local cache so subsequent calls to
+  /// [_loadRemoteSitesFromCache] see the updated content immediately.
   static Future<void> _writeCacheSitesJson(Map<String, dynamic> data) async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final cacheDir = Directory('${dir.path}/cache');
-      if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
-      final cacheFile = File('${cacheDir.path}/sites.json');
-      await cacheFile.writeAsString(jsonEncode(data));
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kSyncCacheKey, jsonEncode(data));
+        dLog('site_sync: Updated SharedPreferences cache with synced sites.json');
+        return;
+      }
+      final docsDir = await getDocsDirPath();
+      final cacheDir = '$docsDir/cache';
+      await ensureDirectory(cacheDir);
+      await writeFileString('$cacheDir/sites.json', jsonEncode(data));
       dLog('site_sync: Updated local cache with synced sites.json');
     } catch (e) {
       dLog('site_sync: Failed to update local cache after sync: $e');
@@ -292,8 +287,6 @@ class SiteSyncService {
     CapturedSession? candidate;
     for (final s in sessions) {
       if (s.siteId != siteId) continue;
-      // Exclude soft-deleted sessions: their S3 image URLs may point to objects
-      // that the admin has already deleted alongside the site.
       if (s.isDeleted) continue;
       if (candidate == null || s.timestamp.isBefore(candidate.timestamp)) {
         candidate = s;
@@ -303,13 +296,6 @@ class SiteSyncService {
   }
 
   /// Extract a relative path from a full S3 URL, given the bucketRoot.
-  ///
-  /// Example:
-  ///   fullUrl = https://fomomon.s3.amazonaws.com/t4gc/testing1/foo.jpg
-  ///   bucketRoot = https://fomomon.s3.amazonaws.com/t4gc
-  ///   -> returns testing1/foo.jpg
-  ///
-  /// Returns null if extraction fails.
   static String? _extractRelativePath(String fullUrl, String bucketRoot) {
     try {
       final normalizedRoot =
@@ -317,10 +303,6 @@ class SiteSyncService {
               ? bucketRoot.substring(0, bucketRoot.length - 1)
               : bucketRoot;
 
-      // Strip query parameters/fragments.
-      // NOTE: Uri.replace(query: '', fragment: '').toString() would INTRODUCE
-      // '?#' on a clean URL (Dart treats '' ≠ null in URI toString).
-      // Use string splitting instead.
       final urlWithoutQuery = fullUrl.split('#').first.split('?').first;
 
       final idx = urlWithoutQuery.indexOf(normalizedRoot);
@@ -342,8 +324,7 @@ class SiteSyncService {
         return null;
       }
 
-      final relative = urlWithoutQuery.substring(start);
-      return relative;
+      return urlWithoutQuery.substring(start);
     } catch (e) {
       dLog('site_sync: Failed to extract relative path from $fullUrl: $e');
       return null;

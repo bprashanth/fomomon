@@ -563,7 +563,8 @@ syncAuthBtn?.addEventListener('click', async () => {
     }
     const bucketStatus = data.bucketPolicyChanged ? 'changed' : 'no change';
     const roleStatus = data.rolePolicyChanged ? 'changed' : 'no change';
-    showAlert(`Permissions enforced. Bucket policy: ${bucketStatus}. Role policy: ${roleStatus}.`);
+    const corsStatus = data.corsChanged ? 'changed' : 'no change';
+    showAlert(`Permissions enforced. Bucket policy: ${bucketStatus}. Role policy: ${roleStatus}. CORS: ${corsStatus}.`);
   } catch (err) {
     showAlert(err.message, 'error');
   }

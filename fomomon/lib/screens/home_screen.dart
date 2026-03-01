@@ -4,6 +4,7 @@
 /// Highlights "+" button if user is within proximity of a site
 /// Taps on "+" trigger the capture workflow
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../services/gps_service.dart';
 import '../services/site_service.dart';
@@ -141,10 +142,13 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     });
 
-    FlutterCompass.events?.listen((event) {
-      if (!mounted) return;
-      setState(() => _heading = event.heading ?? 0);
-    });
+    // No magnetometer in browser — skip compass on web; heading stays at 0.0.
+    if (!kIsWeb) {
+      FlutterCompass.events?.listen((event) {
+        if (!mounted) return;
+        setState(() => _heading = event.heading ?? 0);
+      });
+    }
   }
 
   ({Site? site, bool isWithinRange}) _getClosestSite(

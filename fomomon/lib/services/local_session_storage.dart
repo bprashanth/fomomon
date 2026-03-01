@@ -1,185 +1,54 @@
-/// This class manages CRUD operations on sessions - store, read, delete.
-/// It assumes single writer on a single session.
+/// Cross-platform session persistence.
 ///
-/// Examples:
+/// **Usage**: Import this file at all call sites. The Dart compiler selects
+/// the correct backend at compile time via the conditional export below:
+///   - Native (Android / iOS): [local_session_storage_native.dart] — uses
+///     dart:io File; one JSON file per session in {docsDir}/sessions/.
+///   - Web (Chrome / Safari): [local_session_storage_web.dart] — uses
+///     SharedPreferences (localStorage); key `session:{id}` per session,
+///     plus a `session_ids` list.
 ///
-/// final session = CapturedSession(
-///   sessionId: 'user123_20250715T105000',
-///   siteId: 'test_site_001',
-///   latitude: 12.9719,
-///   longitude: 77.5937,
-///   portraitImagePath: '/path/to/portrait.jpg',
-///   landscapeImagePath: '/path/to/landscape.jpg',
-///   responses: [SurveyResponse(questionId: 'q1', answer: 'Deer')],
-///   timestamp: DateTime.now(),
-/// );
+/// **Interface** — all backends expose the same static API:
 ///
-/// await LocalSessionStorage.saveSession(session);
+/// ```dart
+///   Future<void>               saveSession(CapturedSession session)
+///   Future<List<CapturedSession>> loadAllSessions()
+///   Future<void>               deleteSession(String sessionId)
+///   Future<void>               softDeleteSessionsForSite(String siteId)
+///   Future<void>               markUploadedWithUrls(CapturedSession session)
+///   Site                       createSiteForSession(CapturedSession, Site fallbackSite)
+/// ```
 ///
-/// Writing:
-///   getSession() -> CapturedSession?
-///   Modify session object
-///   saveSession(CapturedSession)
+/// **Migration call-map** (old dart:io → this cross-platform API):
 ///
-/// Filtering:
-///   loadAllSessions() -> List<CapturedSession>
-///   Search for keys
+/// ```dart
+///   // BEFORE (native only)
+///   await File('${docsDir}/sessions/${id}.json').writeAsString(jsonEncode(data));
+///   // AFTER (all platforms)
+///   await LocalSessionStorage.saveSession(session);
 ///
-/// Deleting:
-///   for session in loadAllSessions():
-///     deleteSession(String sessionId)
-
-import 'dart:io';
-import 'dart:convert';
-import 'package:path_provider/path_provider.dart';
-import '../models/captured_session.dart';
-import '../models/site.dart';
-import '../models/survey_question.dart';
-import '../utils/log.dart';
-
-class LocalSessionStorage {
-  static Future<Directory> _getSessionDir() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final sessionDir = Directory('${dir.path}/sessions');
-    if (!await sessionDir.exists()) await sessionDir.create(recursive: true);
-    return sessionDir;
-  }
-
-  static Future<void> saveSession(CapturedSession session) async {
-    final dir = await _getSessionDir();
-    final file = File('${dir.path}/${session.sessionId}.json');
-    final jsonStr = jsonEncode(session.toJson());
-    await file.writeAsString(jsonStr);
-  }
-
-  static Future<List<CapturedSession>> loadAllSessions() async {
-    final dir = await _getSessionDir();
-    final files = dir.listSync().whereType<File>().where(
-      (f) => f.path.endsWith('.json'),
-    );
-
-    final sessions = <CapturedSession>[];
-    for (final file in files) {
-      try {
-        final jsonStr = await file.readAsString();
-        final data = jsonDecode(jsonStr);
-        sessions.add(CapturedSession.fromJson(data));
-      } catch (e) {
-        dLog('Error reading session file ${file.path}: $e');
-      }
-    }
-    return sessions;
-  }
-
-  static Future<void> deleteSession(String sessionId) async {
-    final dir = await _getSessionDir();
-    final file = File('${dir.path}/$sessionId.json');
-
-    // Load session first to get image paths
-    CapturedSession? session;
-    if (await file.exists()) {
-      try {
-        final jsonStr = await file.readAsString();
-        final data = jsonDecode(jsonStr);
-        session = CapturedSession.fromJson(data);
-      } catch (e) {
-        dLog('Error loading session for deletion ${file.path}: $e');
-      }
-    }
-
-    // Delete portrait image if it exists
-    if (session != null && session.portraitImagePath.isNotEmpty) {
-      try {
-        final portraitFile = File(session.portraitImagePath);
-        if (await portraitFile.exists()) {
-          await portraitFile.delete();
-        }
-      } catch (e) {
-        dLog('Error deleting portrait image ${session.portraitImagePath}: $e');
-      }
-    }
-
-    // Delete landscape image if it exists
-    if (session != null && session.landscapeImagePath.isNotEmpty) {
-      try {
-        final landscapeFile = File(session.landscapeImagePath);
-        if (await landscapeFile.exists()) {
-          await landscapeFile.delete();
-        }
-      } catch (e) {
-        dLog(
-          'Error deleting landscape image ${session.landscapeImagePath}: $e',
-        );
-      }
-    }
-
-    // Delete JSON file
-    if (await file.exists()) {
-      await file.delete();
-    }
-  }
-
-  /// Soft-delete all sessions for [siteId] by setting [CapturedSession.isDeleted].
-  ///
-  /// Does NOT delete files from disk. Soft-deleted sessions are excluded from
-  /// ghost image candidate selection in SiteSyncService so stale S3 image URLs
-  /// (from an admin-deleted site) are never used for a re-created site.
-  /// A future hard-delete sweep can clean up the files later.
-  static Future<void> softDeleteSessionsForSite(String siteId) async {
-    final sessions = await loadAllSessions();
-    final matching = sessions.where((s) => s.siteId == siteId).toList();
-    for (final session in matching) {
-      session.isDeleted = true;
-      await saveSession(session);
-      dLog(
-        'local_session_storage: Soft-deleted session ${session.sessionId} for site $siteId',
-      );
-    }
-  }
-
-  /// Mark a session as uploaded and persist its full state, including
-  /// portrait/landscape image URLs.
-  /// Why is this important? 1. Consistency 2. SiteSyncService needs the URLs
-  /// to create ghost images for new sites, and this level of consistency means
-  /// we can just check the persisted site object for the URLs.
-  /// NB: These are raw unsigned urls, the presigned urls are only used
-  /// transiently during uploads.
-  static Future<void> markUploadedWithUrls(CapturedSession session) async {
-    final dir = await _getSessionDir();
-    final file = File('${dir.path}/${session.sessionId}.json');
-
-    // Ensure flag is set on the in-memory object as well.
-    session.isUploaded = true;
-
-    final data = session.toJson();
-    data['isUploaded'] = true;
-
-    await file.writeAsString(jsonEncode(data));
-  }
-
-  // Creates a Site from a Session. While this is backwards, we use this method
-  // to upload stale sessions from a user's phone after the sites have all
-  // changed. The main point is to not discard the data.
-  static Site createSiteForSession(CapturedSession session, Site fallbackSite) {
-    // Convert session responses to survey questions
-    final surveyQuestions =
-        session.responses
-            .map(
-              (response) => SurveyQuestion(
-                id: response.questionId,
-                // Use questionId as question text as fallback
-                question: response.questionId,
-                type: 'text',
-              ),
-            )
-            .toList();
-
-    return Site.createLocalSite(
-      id: session.siteId,
-      lat: session.latitude,
-      lng: session.longitude,
-      surveyQuestions: surveyQuestions,
-      bucketRoot: fallbackSite.bucketRoot,
-    );
-  }
-}
+///   // BEFORE
+///   final files = Directory('${docsDir}/sessions').listSync();
+///   for (final f in files) { final raw = await File(f.path).readAsString(); ... }
+///   // AFTER
+///   final sessions = await LocalSessionStorage.loadAllSessions();
+///
+///   // BEFORE
+///   await File('${docsDir}/sessions/${id}.json').delete();
+///   await File(session.portraitImagePath).delete();   // image cleanup
+///   // AFTER
+///   await LocalSessionStorage.deleteSession(sessionId);
+///   // Note: image cleanup is backend-specific; the web backend is a no-op
+///   // (in-memory images are cleared automatically; see local_image_storage).
+/// ```
+///
+/// **Offline behaviour**:
+///   - Native: sessions are stored on disk and survive app restarts.
+///   - Web: sessions are stored in localStorage (SharedPreferences) and DO
+///     persist across page reloads. However, image bytes live in-memory only
+///     (see [local_image_storage_web.dart]) — so sessions survive reloads but
+///     their image data is gone after a reload unless they were uploaded first.
+///     For full offline resilience on web (images + sessions), use the
+///     IndexedDB backend (Stage 1). See docs/v2/cross_platform_backends.md.
+export 'local_session_storage_native.dart'
+    if (dart.library.html) 'local_session_storage_web.dart';

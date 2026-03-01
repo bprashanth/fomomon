@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../services/upload_service.dart';
 import '../services/local_session_storage.dart';
 import '../services/site_sync_service.dart';
@@ -91,8 +92,15 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
 
   Future<bool> _checkNetwork() async {
     try {
+      // Check our own S3 bucket rather than a third-party URL like google.com.
+      // auth_config.json is public, so no auth is needed, and a 200 confirms
+      // both network connectivity and S3 reachability — exactly what matters
+      // before an upload. This also avoids CORS issues on web (google.com does
+      // not send Access-Control-Allow-Origin headers).
+      final url =
+          'https://${AppConfig.bucketName}.s3.${AppConfig.region}.amazonaws.com/auth_config.json';
       final response = await http
-          .get(Uri.parse('https://www.google.com'))
+          .get(Uri.parse(url))
           .timeout(const Duration(seconds: 3));
       return response.statusCode == 200;
     } catch (e) {

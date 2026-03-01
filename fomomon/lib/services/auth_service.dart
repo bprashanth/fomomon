@@ -12,9 +12,11 @@
 ///
 
 import 'dart:convert';
-import 'dart:io';
 import 'package:amazon_cognito_identity_dart_2/cognito.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'
+    if (dart.library.html) '../stubs/flutter_secure_storage_stub.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/auth_config.dart';
 import '../config/app_config.dart';
@@ -28,33 +30,18 @@ import 'fetch_service.dart';
 ///
 /// 1. **Session (CognitoUserSession)**: An object containing three JWT tokens:
 ///    - **ID Token**: Short-lived JWT (~1 hour) that proves user identity.
-///      Used to exchange for AWS credentials via Cognito Identity Pool.
 ///    - **Access Token**: JWT for API authorization (not used in this app).
 ///    - **Refresh Token**: Long-lived token (~30 days) used to obtain new ID/Access tokens.
-///      This is the token we persist securely for offline access.
 ///
-/// 2. **Token**: JWT strings. We store the refresh token securely. When upload is needed,
+/// 2. **Token**: JWT strings. We store the refresh token. When upload is needed,
 ///    `getValidToken()` uses the refresh token to call Cognito and get a fresh ID token.
-///    Note: `user.refreshSession()` ALWAYS makes a network call to Cognito, even if the
-///    current ID token isn't expired. The SDK doesn't cache - it always validates with Cognito.
 ///
-/// 3. **Credential**: AWS temporary credentials (accessKeyId, secretAccessKey, sessionToken)
-///    obtained by exchanging the ID token with Cognito Identity Pool. These are NOT sent as
-///    HTTP bearer headers. Instead, they're used to sign S3 requests (via presigned URLs).
+/// 3. **Credential**: AWS temporary credentials obtained by exchanging the ID token
+///    with Cognito Identity Pool. Used to sign S3 requests via presigned URLs.
 ///
-/// **Flow for Upload:**
-/// 1. `getValidToken()` → Returns ID token (JWT string)
-///    - If session exists and is valid: returns ID token immediately (no network call)
-///    - If session invalid/missing: uses stored refresh token to call Cognito (network call)
-///      to get new ID token
-/// 2. `getUploadCredentials()` → Takes ID token, exchanges with Cognito Identity Pool
-///    (network call) to get AWS temporary credentials
-/// 3. AWS credentials used by S3SignerService to create presigned URLs for uploads
-///
-/// **Offline Behavior:**
-/// - Stored refresh token acts as a "boolean" to bypass login screen
-/// - No network calls until upload is attempted
-/// - Auth config is only fetched when needed (during upload, which requires network anyway)
+/// **Web note**: On web, flutter_secure_storage is replaced by SharedPreferences
+/// (localStorage). This is intentional for Stage 0 — token security on web
+/// is out-of-scope until Stage 1.
 class AuthService {
   AuthService._privateConstructor();
   static final AuthService instance = AuthService._privateConstructor();
@@ -64,16 +51,50 @@ class AuthService {
   CognitoUser? _user;
   CognitoUserSession? _session;
 
-  // Secure storage for persisting refresh token
-  // Note: This storage pattern is backend-agnostic (works with Firebase Auth, etc.)
-  // Only the refresh mechanism would need to change if swapping auth backends
+  // Secure storage for persisting refresh token (native only).
+  // On web the stub is imported but never called — SharedPreferences is used.
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
-  // Storage keys for secure storage
-  // Note: Storage is OS-encrypted (iOS Keychain, Android Keystore) until device unlock
+  // Cached SharedPreferences instance for web.
+  SharedPreferences? _prefs;
+
+  // Storage keys
   static const String _refreshTokenKey = 'cognito_refresh_token';
   static const String _usernameKey = 'cognito_username';
   static const String _orgKey = 'cognito_org';
+
+  // ---------------------------------------------------------------------------
+  // Private helpers: read / write / delete a token key cross-platform.
+  // On web: SharedPreferences (localStorage). On native: FlutterSecureStorage.
+  // ---------------------------------------------------------------------------
+
+  Future<String?> _readKey(String key) async {
+    if (kIsWeb) {
+      _prefs ??= await SharedPreferences.getInstance();
+      return _prefs!.getString(key);
+    }
+    return await _secureStorage.read(key: key);
+  }
+
+  Future<void> _writeKey(String key, String value) async {
+    if (kIsWeb) {
+      _prefs ??= await SharedPreferences.getInstance();
+      await _prefs!.setString(key, value);
+    } else {
+      await _secureStorage.write(key: key, value: value);
+    }
+  }
+
+  Future<void> _deleteKey(String key) async {
+    if (kIsWeb) {
+      _prefs ??= await SharedPreferences.getInstance();
+      await _prefs!.remove(key);
+    } else {
+      await _secureStorage.delete(key: key);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
 
   Future<String> getIdentityPoolId() async {
     if (_authConfig == null) {
@@ -84,30 +105,20 @@ class AuthService {
     return _authConfig!.identityPoolId;
   }
 
-  /// Returns true if session exists (even if not validated) OR if a stored
-  /// refresh token exists (indicating user has logged in before).
-  /// Guest mode never calls login(), so returns false correctly.
-  ///
-  /// After a reboot, _session is null but a stored refresh token may exist.
-  /// In this case, we return true so upload attempts will use auth path,
-  /// which will then call getValidToken() to refresh the session.
   Future<bool> isUserLoggedIn() async {
     if (_session != null) {
       dLog('auth_service: Session exists, returning true');
       return true;
     }
-
-    // Check for stored refresh token (indicates user has logged in before)
-    final storedToken = await _secureStorage.read(key: _refreshTokenKey);
+    final storedToken = await _readKey(_refreshTokenKey);
     dLog('auth_service: Stored refresh token: $storedToken');
     return storedToken != null;
   }
 
   /// Fetch AWS configuration from S3
-  /// Uses AppConfig.bucketName to construct the S3 URL
   Future<AuthConfig> fetchAuthConfig() async {
     if (_authConfig != null) {
-      return _authConfig!; // Return cached config
+      return _authConfig!;
     }
 
     try {
@@ -123,7 +134,6 @@ class AuthService {
         final json = jsonDecode(response.body);
         _authConfig = AuthConfig.fromJson(json);
 
-        // Initialize CognitoUserPool with fetched config
         _userPool = CognitoUserPool(
           _authConfig!.userPoolId,
           _authConfig!.clientId,
@@ -136,17 +146,17 @@ class AuthService {
           'Failed to fetch auth config: HTTP ${response.statusCode}',
         );
       }
-    } on SocketException catch (e) {
-      dLog('auth_service: Network error fetching auth config: $e');
-      throw AuthNetworkException(e);
     } on FormatException catch (e) {
       dLog('auth_service: Invalid JSON in auth config: $e');
       throw AuthConfigException(e);
     } catch (e) {
-      dLog('auth_service: Failed to fetch auth config: $e');
-      if (e is AuthException) {
-        rethrow;
+      final msg = e.toString();
+      if (msg.contains('SocketException') || msg.contains('Failed to fetch')) {
+        dLog('auth_service: Network error fetching auth config: $e');
+        throw AuthNetworkException(e);
       }
+      dLog('auth_service: Failed to fetch auth config: $e');
+      if (e is AuthException) rethrow;
       throw AuthConfigException(e);
     }
   }
@@ -162,15 +172,7 @@ class AuthService {
   }
 
   /// Login with email/password
-  ///
-  /// @param email: the email of the user, but currently we accept userId /
-  /// name too. This is simply the name field in the cognito user pool. See
-  /// hack/update_as_user.py to see an example of how to set it.
-  ///
-  /// @param password: the password of the user. This is setup before hand. See
-  /// hack/add_users.py for more details.
   Future<void> login(String email, String password) async {
-    // Ensure config is fetched
     if (_authConfig == null) {
       throw AuthConfigException(
         'Auth config not fetched. Call fetchAuthConfig() first.',
@@ -189,28 +191,20 @@ class AuthService {
       _session = await _user!.authenticateUser(authDetails);
       dLog('auth_service: Login successful for user: $email');
 
-      // Refresh token stored via secure storage (encrypted until device
-      // unlock). This enables offline app access after reboot.
       if (_session!.refreshToken != null) {
-        await _secureStorage.write(
-          key: _refreshTokenKey,
-          value: _session!.refreshToken!.token,
-        );
-        // Store username and org for session restoration
-        await _secureStorage.write(key: _usernameKey, value: email);
-        // Get org from AppConfig (set during login flow before login() is called)
+        await _writeKey(_refreshTokenKey, _session!.refreshToken!.token ?? '');
+        await _writeKey(_usernameKey, email);
         final org = AppConfig.org;
         if (org == null) {
           throw AuthConfigException(
             'AppConfig.org is not set. AppConfig.configure() must be called before login.',
           );
         }
-        await _secureStorage.write(key: _orgKey, value: org);
-        dLog('auth_service: Stored refresh token and user info securely');
+        await _writeKey(_orgKey, org);
+        dLog('auth_service: Stored refresh token and user info');
       }
     } on CognitoClientException catch (e) {
       dLog('auth_service: Cognito authentication failed: $e');
-      // Check for specific Cognito error codes
       if (e.code == 'NotAuthorizedException' ||
           e.code == 'UserNotFoundException' ||
           e.code == 'InvalidParameterException') {
@@ -220,68 +214,37 @@ class AuthService {
       } else {
         throw AuthServiceException(e);
       }
-    } on SocketException catch (e) {
-      dLog('auth_service: Network error during login: $e');
-      throw AuthNetworkException(e);
     } catch (e) {
-      dLog('auth_service: Unexpected error during login: $e');
-      if (e is AuthException) {
-        rethrow;
+      final msg = e.toString();
+      if (msg.contains('SocketException') || msg.contains('Failed to fetch')) {
+        dLog('auth_service: Network error during login: $e');
+        throw AuthNetworkException(e);
       }
+      dLog('auth_service: Unexpected error during login: $e');
+      if (e is AuthException) rethrow;
       throw AuthServiceException(e);
     }
   }
 
   /// Restore minimal session info from stored refresh token (offline-only).
-  /// This creates a "thin" session that only contains stored user info (username, org)
-  /// and does NOT create a full CognitoUserSession needed for uploads.
-  ///
-  /// **Why defer full session restoration to upload time?**
-  ///
-  /// Creating a full session requires:
-  /// 1. Fetching auth config from S3 (network call)
-  /// 2. Creating CognitoUser object (needs auth config)
-  /// 3. Calling refreshSession() to validate refresh token (network call to Cognito)
-  ///
-  /// By deferring this until upload time, we achieve:
-  /// - **Offline-first access**: Users can access the app immediately after reboot
-  ///   without waiting for network calls, using cached sites/images
-  /// - **No blocking startup**: App startup is fast and doesn't fail if offline
-  /// - **Lazy validation**: Token validation only happens when actually needed (upload)
-  ///
-  /// The stored refresh token acts as a "has logged in" boolean to bypass the login
-  /// screen. Full session restoration happens in `getValidToken()` when upload is
-  /// attempted (which requires network anyway).
-  ///
-  /// @return: Map with 'username' and 'org' if stored token exists, null otherwise
   Future<Map<String, String>?> restoreSessionOffline() async {
     try {
-      // Check for stored refresh token
-      final refreshToken = await _secureStorage.read(key: _refreshTokenKey);
+      final refreshToken = await _readKey(_refreshTokenKey);
       if (refreshToken == null) {
         dLog('auth_service: No stored refresh token found');
         return null;
       }
 
-      final username = await _secureStorage.read(key: _usernameKey);
-      final org = await _secureStorage.read(key: _orgKey);
+      final username = await _readKey(_usernameKey);
+      final org = await _readKey(_orgKey);
 
       if (username == null || org == null) {
         dLog('auth_service: Stored token found but missing username or org');
-        // Clear incomplete data
-        await _secureStorage.delete(key: _refreshTokenKey);
-        await _secureStorage.delete(key: _usernameKey);
-        await _secureStorage.delete(key: _orgKey);
+        await _deleteKey(_refreshTokenKey);
+        await _deleteKey(_usernameKey);
+        await _deleteKey(_orgKey);
         return null;
       }
-
-      // Don't fetch auth config here - it's not needed to use token as boolean.
-      // Auth config will be fetched when getValidToken() is called (during upload).
-      // This allows offline app access after reboot without blocking on network.
-
-      // Note: We don't create CognitoUser here because we need auth config for that.
-      // CognitoUser will be created in getValidToken() when auth config is available.
-      // For now, just return user info to bypass login screen.
 
       dLog(
         'auth_service: Restored offline session info: $username, org: $org',
@@ -289,10 +252,9 @@ class AuthService {
       return {'username': username, 'org': org};
     } catch (e) {
       dLog('auth_service: Error restoring session: $e');
-      // Clear potentially corrupted data
-      await _secureStorage.delete(key: _refreshTokenKey);
-      await _secureStorage.delete(key: _usernameKey);
-      await _secureStorage.delete(key: _orgKey);
+      await _deleteKey(_refreshTokenKey);
+      await _deleteKey(_usernameKey);
+      await _deleteKey(_orgKey);
       return null;
     }
   }
@@ -303,24 +265,16 @@ class AuthService {
       await _user!.signOut();
     }
     _session = null;
-    // Clear stored refresh token, username, and org from secure storage
-    await _secureStorage.delete(key: _refreshTokenKey);
-    await _secureStorage.delete(key: _usernameKey);
-    await _secureStorage.delete(key: _orgKey);
+    await _deleteKey(_refreshTokenKey);
+    await _deleteKey(_usernameKey);
+    await _deleteKey(_orgKey);
     dLog('auth_service: Cleared stored session data');
   }
 
   /// Get a valid token from the session.
   /// If the session is invalid, refresh it.
-  ///
-  /// @return: the valid token
-  /// @throws: AuthSessionExpiredException if the session is invalid and cannot be refreshed
   Future<String?> getValidToken() async {
-    // If no session but we have a stored refresh token, try to restore it
-    // First ensure we have auth config (required for CognitoUserPool).
-    // See file comment for session vs token vs credential.
     if (_session == null) {
-      // Try to fetch auth config if not available (needed for CognitoUser)
       if (_authConfig == null) {
         try {
           await fetchAuthConfig();
@@ -334,28 +288,19 @@ class AuthService {
         }
       }
 
-      // Check for stored refresh token
-      final storedRefreshToken = await _secureStorage.read(
-        key: _refreshTokenKey,
-      );
+      final storedRefreshToken = await _readKey(_refreshTokenKey);
       if (storedRefreshToken != null) {
-        // Get username from stored data
-        final username = await _secureStorage.read(key: _usernameKey);
+        final username = await _readKey(_usernameKey);
         if (username == null) {
           throw AuthSessionExpiredException(
             'Stored token found but missing username.',
           );
         }
 
-        // Create CognitoUser if not already created
         if (_user == null) {
           _user = CognitoUser(username, _userPool!);
         }
 
-        // Note: We always call refreshSession() here because we don't have a session object yet.
-        // refreshSession() will make a network call to Cognito to validate the refresh token
-        // and get a new ID token. There's no way to check if a refresh token is valid without
-        // calling Cognito, so we can't avoid the network call.
         dLog(
           'auth_service: No session but found stored refresh token, refreshing',
         );
@@ -364,66 +309,52 @@ class AuthService {
             CognitoRefreshToken(storedRefreshToken),
           );
           dLog('auth_service: Session restored from stored refresh token');
-          // Update stored refresh token if it changed
           if (_session!.refreshToken != null) {
-            await _secureStorage.write(
-              key: _refreshTokenKey,
-              value: _session!.refreshToken!.token,
-            );
+            await _writeKey(_refreshTokenKey, _session!.refreshToken!.token ?? '');
           }
           return _session!.idToken.jwtToken;
         } catch (e) {
           dLog(
             'auth_service: Failed to restore session from stored token: $e',
           );
-          // Clear invalid stored token
-          await _secureStorage.delete(key: _refreshTokenKey);
-          await _secureStorage.delete(key: _usernameKey);
-          await _secureStorage.delete(key: _orgKey);
+          await _deleteKey(_refreshTokenKey);
+          await _deleteKey(_usernameKey);
+          await _deleteKey(_orgKey);
           throw AuthSessionExpiredException(e);
         }
       }
     }
 
-    // If we still don't have a session after checking stored token, fail
     if (_session == null) {
       throw AuthSessionExpiredException(
         'No session available. User must log in.',
       );
     }
 
-    // If session is valid, return it
     if (_session!.isValid()) {
       dLog('auth_service: Session is valid, returning jwt token');
       return _session!.idToken.jwtToken;
     }
 
-    // Session is invalid, try to refresh
     if (_session!.refreshToken != null) {
       dLog('auth_service: Session is invalid, refreshing session');
       try {
         _session = await _user!.refreshSession(_session!.refreshToken!);
         dLog('auth_service: Session refreshed, returning jwt token');
-        // Update stored refresh token if it changed
         if (_session!.refreshToken != null) {
-          await _secureStorage.write(
-            key: _refreshTokenKey,
-            value: _session!.refreshToken!.token,
-          );
+          await _writeKey(_refreshTokenKey, _session!.refreshToken!.token ?? '');
         }
         return _session!.idToken.jwtToken;
       } catch (e) {
         dLog('auth_service: Failed to refresh session: $e');
-        // Clear invalid session
         _session = null;
-        await _secureStorage.delete(key: _refreshTokenKey);
-        await _secureStorage.delete(key: _usernameKey);
-        await _secureStorage.delete(key: _orgKey);
+        await _deleteKey(_refreshTokenKey);
+        await _deleteKey(_usernameKey);
+        await _deleteKey(_orgKey);
         throw AuthSessionExpiredException(e);
       }
     }
 
-    // No refresh token available
     _session = null;
     throw AuthSessionExpiredException(
       'Session expired and no refresh token available.',
@@ -431,12 +362,8 @@ class AuthService {
   }
 
   /// Get temporary AWS credentials for S3 uploads using Cognito Identity Pool
-  ///
-  /// @return: Map containing temporary AWS credentials (accessKeyId, secretAccessKey, sessionToken)
-  /// @throws: Exception if user is not logged in or credentials cannot be obtained
   Future<Map<String, dynamic>> getUploadCredentials() async {
     try {
-      // Get the ID token from the current session
       final idToken = await getValidToken();
       if (idToken == null) {
         throw AuthCredentialsException(
@@ -446,7 +373,6 @@ class AuthService {
 
       dLog('auth_service: Got valid ID token, length: ${idToken.length}');
 
-      // Create CognitoCredentials instance and get temporary AWS credentials
       final credentials = CognitoCredentials(
         _authConfig!.identityPoolId,
         _userPool!,
@@ -454,27 +380,20 @@ class AuthService {
       await credentials.getAwsCredentials(idToken);
 
       dLog('auth_service: Successfully obtained temporary AWS credentials');
-      dLog('auth_service: Access Key ID: ${credentials.accessKeyId}');
-      dLog(
-        'auth_service: Secret Access Key length: ${credentials.secretAccessKey?.length ?? 0}',
-      );
-      dLog(
-        'auth_service: Session Token length: ${credentials.sessionToken?.length ?? 0}',
-      );
 
       return {
         'accessKeyId': credentials.accessKeyId,
         'secretAccessKey': credentials.secretAccessKey,
         'sessionToken': credentials.sessionToken,
       };
-    } on SocketException catch (e) {
-      dLog('auth_service: Network error getting upload credentials: $e');
-      throw AuthNetworkException(e);
     } catch (e) {
-      dLog('auth_service: Failed to get upload credentials: $e');
-      if (e is AuthException) {
-        rethrow;
+      final msg = e.toString();
+      if (msg.contains('SocketException') || msg.contains('Failed to fetch')) {
+        dLog('auth_service: Network error getting upload credentials: $e');
+        throw AuthNetworkException(e);
       }
+      dLog('auth_service: Failed to get upload credentials: $e');
+      if (e is AuthException) rethrow;
       throw AuthServiceException(e);
     }
   }

@@ -1,8 +1,8 @@
 // This dialog is shown when a user taps on an upload gallery item. It displays the session details and allows the user to delete the session.
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/captured_session.dart';
 import '../models/site.dart';
+import '../services/local_image_storage.dart';
 import '../services/local_session_storage.dart';
 
 class SessionDetailDialog extends StatelessWidget {
@@ -44,8 +44,26 @@ class SessionDetailDialog extends StatelessWidget {
 
   String _pad(int n) => n.toString().padLeft(2, '0');
 
+  /// Cross-platform image widget using Image.memory so that 'web_img:{key}'
+  /// paths work in browsers without requiring dart:io File.
+  Widget _buildImage(String path) {
+    if (path.isEmpty) {
+      return const Center(child: Icon(Icons.image, color: Colors.grey, size: 40));
+    }
+    try {
+      final bytes = LocalImageStorage.readBytes(path);
+      if (bytes.isEmpty) {
+        return const Center(child: Icon(Icons.image, color: Colors.grey, size: 40));
+      }
+      return Image.memory(bytes, fit: BoxFit.cover);
+    } catch (_) {
+      return const Center(
+        child: Icon(Icons.broken_image, color: Colors.grey, size: 40),
+      );
+    }
+  }
+
   Future<void> _handleDelete(BuildContext context) async {
-    // Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -81,8 +99,8 @@ class SessionDetailDialog extends StatelessWidget {
       try {
         await LocalSessionStorage.deleteSession(session.sessionId);
         if (context.mounted) {
-          Navigator.of(context).pop(); // Close detail dialog
-          onDeleted(); // Notify parent to refresh
+          Navigator.of(context).pop();
+          onDeleted();
         }
       } catch (e) {
         if (context.mounted) {
@@ -171,7 +189,6 @@ class SessionDetailDialog extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Images section
                     const Text(
                       'Images',
                       style: TextStyle(
@@ -205,28 +222,7 @@ class SessionDetailDialog extends StatelessWidget {
                                 ),
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
-                                  child: session.portraitImagePath.isNotEmpty
-                                      ? Image.file(
-                                          File(session.portraitImagePath),
-                                          fit: BoxFit.cover,
-                                          errorBuilder:
-                                              (context, error, stackTrace) {
-                                            return const Center(
-                                              child: Icon(
-                                                Icons.broken_image,
-                                                color: Colors.grey,
-                                                size: 40,
-                                              ),
-                                            );
-                                          },
-                                        )
-                                      : const Center(
-                                          child: Icon(
-                                            Icons.image,
-                                            color: Colors.grey,
-                                            size: 40,
-                                          ),
-                                        ),
+                                  child: _buildImage(session.portraitImagePath),
                                 ),
                               ),
                             ],
@@ -255,28 +251,7 @@ class SessionDetailDialog extends StatelessWidget {
                                 ),
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
-                                  child: session.landscapeImagePath.isNotEmpty
-                                      ? Image.file(
-                                          File(session.landscapeImagePath),
-                                          fit: BoxFit.cover,
-                                          errorBuilder:
-                                              (context, error, stackTrace) {
-                                            return const Center(
-                                              child: Icon(
-                                                Icons.broken_image,
-                                                color: Colors.grey,
-                                                size: 40,
-                                              ),
-                                            );
-                                          },
-                                        )
-                                      : const Center(
-                                          child: Icon(
-                                            Icons.image,
-                                            color: Colors.grey,
-                                            size: 40,
-                                          ),
-                                        ),
+                                  child: _buildImage(session.landscapeImagePath),
                                 ),
                               ),
                             ],
@@ -285,7 +260,6 @@ class SessionDetailDialog extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 24),
-                    // Survey responses section
                     const Text(
                       'Survey Responses',
                       style: TextStyle(
@@ -388,4 +362,3 @@ class SessionDetailDialog extends StatelessWidget {
     );
   }
 }
-

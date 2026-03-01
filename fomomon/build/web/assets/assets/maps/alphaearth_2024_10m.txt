@@ -1,0 +1,5 @@
+Original bounds: BoundingBox(left=694960.0, bottom=1271310.0, right=697080.0, top=1269280.0)
+Transform: | 10.00, 0.00, 694960.00|
+| 0.00, 10.00, 1269280.00|
+| 0.00, 0.00, 1.00|
+Width: 212, Height: 203
