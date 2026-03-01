@@ -10,7 +10,7 @@ Progressive Web App that also runs in Chrome / Safari.
 | Stage | Description | Status |
 |-------|-------------|--------|
 | **Stage 0** | Compilation + runtime fixes; core flow verified; deployed to Netlify | ✅ Complete |
-| **Stage 1** | IndexedDB image persistence + storage layer cleanup | ✅ Complete |
+| **Stage 1** | IndexedDB image persistence + storage layer cleanup | 🔄 Deployed, under testing |
 | **Stage 2** | iOS deployment (no new code expected) | ⬜ Pending |
 
 ---
@@ -123,7 +123,7 @@ s3://{bucket}/{org}/telemetry/{date}/{userId}_{epoch}.json
 
 ---
 
-## Stage 1 — IndexedDB + Storage Layer Cleanup (Complete)
+## Stage 1 — IndexedDB + Storage Layer Cleanup (Deployed, under testing)
 
 ### What was done
 
@@ -136,13 +136,52 @@ s3://{bucket}/{org}/telemetry/{date}/{userId}_{epoch}.json
 | Removed `kIsWeb` + SharedPreferences from site_service cache methods | `site_service.dart` |
 | Removed `kIsWeb`, SharedPreferences, file_bytes imports entirely | `site_sync_service.dart` |
 
-See [`idb.md`](../../../v2/pwa/idb.md) for the full design and [`pwa_design.md`](pwa_design.md) for the testing checklist.
+See [`idb.md`](idb.md) for the full design and [`pwa_design.md`](pwa_design.md) for the testing checklist.
+
+### Testing status
+
+- [ ] Capture → close tab → reopen → thumbnails still visible → upload succeeds
+- [ ] PWA backgrounded on Android → return → images still present
+- [ ] Ghost overlay visible offline after first load
+- [ ] DevTools → Application → IndexedDB → `fomomon_images` → rows visible after capture
 
 ### Known gaps remaining after Stage 1
 
 - `_ensureCachedImage` web branch re-fetches S3 on every launch (missing `imageExists()` check)
-- Screen orientation not flipping back after landscape capture on web
 - Auth token unencrypted in localStorage
+
+---
+
+## Screen orientation (unresolved)
+
+Tracking separately because it cuts across Stage 0 and Stage 1 and is still being debugged.
+
+### Problem
+
+Landscape capture screen does not rotate to landscape on web (installed PWA on Android).
+Native is unaffected — `SystemChrome.setPreferredOrientations()` works at OS level
+with no display-mode constraint.
+
+### Root cause (confirmed)
+
+`screen.orientation.lock()` requires the page to be in fullscreen or standalone PWA
+display mode. Called from a regular browser tab it always throws `NotSupportedError`
+(silently swallowed). Confirmed testing environment is the installed PWA (standalone
+mode), so this constraint should be satisfied.
+
+### Attempts so far
+
+| Attempt | Outcome |
+|---------|---------|
+| Call `lock()` directly from `initState` | No effect, no error |
+| Move call to `SchedulerBinding.addPostFrameCallback` | Deployed, not yet confirmed working |
+
+### Next debug steps
+
+If `addPostFrameCallback` also has no effect:
+1. Add alert before and inside the callback to confirm (a) function is called, (b) callback fires, (c) error text if lock() throws
+2. If callback fires and lock() succeeds but screen doesn't rotate: try `Future.delayed(const Duration(milliseconds: 300), ...)` — some Chrome versions need a brief pause after navigation before honouring orientation lock
+3. If `screen.orientation` is null: the PWA manifest may need `"orientation": "any"` removed, or the device OS may have orientation locked at system level
 
 ---
 
