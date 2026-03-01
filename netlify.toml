@@ -1,2 +1,3 @@
 [build]
-  publish = "fomomon/build/web"
+  base    = "fomomon"
+  publish = "build/web"
