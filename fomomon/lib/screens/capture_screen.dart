@@ -10,6 +10,7 @@ import '../models/site.dart';
 import '../models/confirm_screen_args.dart';
 import '../screens/confirm_screen.dart';
 import '../services/local_image_storage.dart';
+import '../utils/camera_permission.dart';
 import '../widgets/orientation_dial.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -121,6 +122,10 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   Future<void> _initCamera() async {
     try {
+      // On web, getUserMedia() must be called before enumerateDevices() to
+      // trigger the browser permission dialog. requestCameraPermission() does
+      // this and is a no-op on native where the camera plugin handles it.
+      await requestCameraPermission();
       final cameras = await availableCameras();
       if (!mounted) return;
 
@@ -157,10 +162,16 @@ class _CaptureScreenState extends State<CaptureScreen>
     } catch (e) {
       print("Camera initialization failed: $e");
       if (mounted) {
+        final msg = e.toString().contains('NotAllowedError') ||
+                e.toString().contains('permissionDenied') ||
+                e.toString().contains('cameraPermission')
+            ? 'Camera permission denied. Go to browser Site Settings for this URL and allow Camera, then reopen the app.'
+            : 'Failed to initialize camera. Please try again.';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to initialize camera. Please try again.'),
+          SnackBar(
+            content: Text(msg),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 6),
           ),
         );
       }
