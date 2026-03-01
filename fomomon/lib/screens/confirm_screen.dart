@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../services/heading_service.dart';
+import '../utils/screen_orientation.dart';
 import '../services/local_image_storage.dart';
 import '../models/confirm_screen_args.dart';
 import '../screens/capture_screen.dart';
@@ -30,7 +30,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   @override
   void initState() {
     super.initState();
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    lockScreenOrientation('portrait');
     args = widget.args;
     _shownImagePath =
         args.captureMode == 'portrait'
@@ -107,16 +107,11 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       print('Error deleting image: $e');
     }
 
-    if (args.captureMode == 'landscape') {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    } else {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-      ]);
-    }
+    // Pre-rotate before popping back to CaptureScreen so the transition
+    // is smooth. On native: SystemChrome. On web: screen.orientation.lock().
+    await lockScreenOrientation(
+      args.captureMode == 'landscape' ? 'landscape' : 'portrait',
+    );
 
     Navigator.of(context).pop(); // go back to CaptureScreen
   }

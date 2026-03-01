@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 
 import '../models/site.dart';
@@ -11,6 +10,7 @@ import '../models/confirm_screen_args.dart';
 import '../screens/confirm_screen.dart';
 import '../services/local_image_storage.dart';
 import '../utils/camera_permission.dart';
+import '../utils/screen_orientation.dart';
 import '../widgets/orientation_dial.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -79,15 +79,11 @@ class _CaptureScreenState extends State<CaptureScreen>
       CurvedAnimation(parent: _shutterController, curve: Curves.easeOutCubic),
     );
 
-    // Set the orientation based on the captureMode
-    if (widget.captureMode == 'portrait') {
-      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    } else {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    }
+    // Lock orientation for this capture step. On native: SystemChrome.
+    // On web: screen.orientation.lock() (works for installed PWAs).
+    lockScreenOrientation(
+      widget.captureMode == 'landscape' ? 'landscape' : 'portrait',
+    );
 
     _initCamera();
 
