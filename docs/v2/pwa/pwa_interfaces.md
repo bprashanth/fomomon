@@ -15,7 +15,7 @@ update the call-map in the router file's block comment.
 
 **Router file**: `lib/services/local_image_storage.dart`
 **Native backend**: `lib/services/local_image_storage_native.dart` (dart:io)
-**Web backend**: `lib/services/local_image_storage_web.dart` (in-memory Map)
+**Web backend**: `lib/services/local_image_storage_web.dart` (IndexedDB + write-through cache — Stage 1)
 
 ### Interface
 
@@ -61,11 +61,10 @@ class LocalImageStorage {
 
 ### Notes
 
-- `readBytes` must remain synchronous until Stage 1. The synchronous contract is
-  relied upon in `initState` (confirm_screen, capture_screen) and in `_buildImage`
-  (session_detail_dialog) where async is not possible without a FutureBuilder.
-- Stage 1 will introduce `readBytesAsync(path)` backed by IndexedDB, and widgets
-  will migrate to FutureBuilder or a pre-loaded bytes approach.
+- `readBytes` is synchronous. The web backend satisfies this via a write-through
+  in-memory cache preloaded from IDB on startup (`initStorage()`). See [`idb.md`](idb.md)
+  for the design rationale.
+- `initStorage()` must be called before `runApp()`. It is a no-op on native.
 
 ---
 
@@ -210,14 +209,48 @@ Future<String> getDocsDirPath();
 ### Why write / directory functions are no-ops on web
 
 `site_service` and `site_sync_service` write JSON caches to disk on native.
-On web, those same functions use `kIsWeb` branches that write to SharedPreferences
-instead of calling `writeFileString`. The web backend's no-op stubs are safety nets
-that prevent crashes if a caller misses its `kIsWeb` guard; they do not replace the
-SharedPreferences writes.
+On web, those calls go through `SitesCacheStorage.write(key, json)` which writes to
+SharedPreferences. The web backend's no-op stubs in `file_bytes_web.dart` are safety
+nets; they are not called in the normal code path.
 
 ---
 
-## 5. Auth Token Storage (inside AuthService)
+## 5. SitesCacheStorage
+
+**Router file**: `lib/services/sites_cache_storage.dart`
+**Native backend**: `lib/services/sites_cache_storage_native.dart` (dart:io via file_bytes)
+**Web backend**: `lib/services/sites_cache_storage_web.dart` (SharedPreferences)
+
+### Interface
+
+```dart
+class SitesCacheStorage {
+
+  /// Returns the cached sites.json string, or null if nothing is stored.
+  /// [key] is used as the SharedPreferences key on web; ignored on native
+  /// (all callers share {docsDir}/cache/sites.json).
+  static Future<String?> read(String key);
+
+  /// Persists [json] under [key].
+  static Future<void> write(String key, String json);
+}
+```
+
+### Storage keys (web backend)
+
+| Caller | Key | Content |
+|--------|-----|---------|
+| `site_service` | `sites_cache` | Fetched + local-path-updated `sites.json` |
+| `site_sync_service` | `sites_cache_sync` | Post-sync `sites.json` (separate key avoids mid-session overwrites) |
+
+### Native behaviour
+
+Both callers resolve to the same file `{docsDir}/cache/sites.json`, matching the
+pre-existing behaviour where site_service and site_sync_service shared the same file.
+
+---
+
+## 6. Auth Token Storage (inside AuthService)
 
 **File**: `lib/services/auth_service.dart`
 **Native**: FlutterSecureStorage (conditionally imported)

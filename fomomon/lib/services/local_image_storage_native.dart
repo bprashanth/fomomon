@@ -25,6 +25,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 class LocalImageStorage {
+  /// No-op on native — images are written directly to disk in [saveImage].
+  /// Exists so call sites can call initStorage() without platform guards.
+  static Future<void> initStorage() async {}
+
   /// Saves [bytes] under key [key] inside the permanent images directory.
   /// Returns the full local path.
   static Future<String> saveImage(Uint8List bytes, String key) async {

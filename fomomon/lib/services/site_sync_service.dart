@@ -1,8 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../config/app_config.dart';
 import '../models/captured_session.dart';
 import '../models/site.dart';
@@ -10,13 +7,14 @@ import '../models/telemetry_event.dart';
 import '../models/telemetry_pivots.dart';
 import '../services/local_session_storage.dart';
 import '../services/local_site_storage.dart';
+import '../services/sites_cache_storage.dart';
 import '../services/telemetry_service.dart';
 import '../services/upload_service.dart';
 import '../utils/log.dart';
-import '../utils/file_bytes.dart';
 
-// SharedPreferences key used for web cache in site_sync (kept separate from
-// the key used by site_service so they don't overwrite each other mid-session).
+// Cache key for site_sync (separate from site_service's 'sites_cache' key so
+// the two services don't overwrite each other's view of sites.json on web;
+// on native both resolve to the same {docsDir}/cache/sites.json file).
 const String _kSyncCacheKey = 'sites_cache_sync';
 
 /// SiteSyncService
@@ -207,24 +205,10 @@ class SiteSyncService {
   }
 
   /// Load remote sites and bucket_root from the cached sites.json.
-  /// On web: reads from SharedPreferences key [_kSyncCacheKey].
-  /// On native: reads from {docsDir}/cache/sites.json.
   static Future<({String bucketRoot, List<Site> sites})>
   _loadRemoteSitesFromCache() async {
     try {
-      String? jsonStr;
-
-      if (kIsWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        jsonStr = prefs.getString(_kSyncCacheKey);
-      } else {
-        final docsDir = await getDocsDirPath();
-        final cachePath = '$docsDir/cache/sites.json';
-        if (await fileExistsAsync(cachePath)) {
-          jsonStr = await readFileString(cachePath);
-        }
-      }
-
+      final jsonStr = await SitesCacheStorage.read(_kSyncCacheKey);
       if (jsonStr == null) {
         final bucketRoot = AppConfig.getResolvedBucketRoot();
         dLog(
@@ -263,17 +247,8 @@ class SiteSyncService {
   /// [_loadRemoteSitesFromCache] see the updated content immediately.
   static Future<void> _writeCacheSitesJson(Map<String, dynamic> data) async {
     try {
-      if (kIsWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_kSyncCacheKey, jsonEncode(data));
-        dLog('site_sync: Updated SharedPreferences cache with synced sites.json');
-        return;
-      }
-      final docsDir = await getDocsDirPath();
-      final cacheDir = '$docsDir/cache';
-      await ensureDirectory(cacheDir);
-      await writeFileString('$cacheDir/sites.json', jsonEncode(data));
-      dLog('site_sync: Updated local cache with synced sites.json');
+      await SitesCacheStorage.write(_kSyncCacheKey, jsonEncode(data));
+      dLog('site_sync: Updated cache with synced sites.json');
     } catch (e) {
       dLog('site_sync: Failed to update local cache after sync: $e');
     }

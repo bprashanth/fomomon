@@ -9,8 +9,8 @@ Progressive Web App that also runs in Chrome / Safari.
 
 | Stage | Description | Status |
 |-------|-------------|--------|
-| **Stage 0** | Compilation + runtime fixes; runs on localhost; core flow verified | ✅ Complete |
-| **Stage 1** | IndexedDB for image persistence across page reloads | ⬜ Pending |
+| **Stage 0** | Compilation + runtime fixes; core flow verified; deployed to Netlify | ✅ Complete |
+| **Stage 1** | IndexedDB image persistence + storage layer cleanup | 🔄 Deployed, under testing |
 | **Stage 2** | iOS deployment (no new code expected) | ⬜ Pending |
 
 ---
@@ -40,6 +40,15 @@ Progressive Web App that also runs in Chrome / Safari.
 - Images lost on page reload — must capture and upload in one browser session
 - Auth token in localStorage (unencrypted) — acceptable for localhost
 - Compass heading overlay disabled on web — no magnetometer in browser
+
+### Known issues (to fix)
+
+- **Screen orientation not flipping back after landscape capture on web**: The confirm
+  screen calls `lockScreenOrientation('portrait')` which calls `screen.orientation.lock('portrait')`,
+  but Chrome may not honour this when the installed PWA is not in fullscreen mode.
+  The screen stays in landscape after the second capture. Investigate whether
+  `screen.orientation.unlock()` followed by a delayed `lock('portrait')` resolves it,
+  or whether a `ResizeObserver` / `orientationchange` event approach is needed.
 
 ---
 
@@ -114,30 +123,65 @@ s3://{bucket}/{org}/telemetry/{date}/{userId}_{epoch}.json
 
 ---
 
-## Stage 1 — IndexedDB Image Persistence (Pending)
+## Stage 1 — IndexedDB + Storage Layer Cleanup (Deployed, under testing)
 
-### Goal
+### What was done
 
-Replace `local_image_storage_web.dart` (in-memory Map) with an IndexedDB backend
-so image bytes survive page reloads and the "upload later" pattern works on web.
+| Change | Files |
+|--------|-------|
+| IndexedDB backend with write-through in-memory cache | `local_image_storage_web.dart` (full rewrite) |
+| `initStorage()` no-op on native to match web interface | `local_image_storage_native.dart` |
+| Call `initStorage()` before `runApp()` | `lib/main.dart` |
+| `SitesCacheStorage` conditional export (eliminates `kIsWeb` from site services) | `sites_cache_storage.dart` + `*_native.dart` + `*_web.dart` |
+| Removed `kIsWeb` + SharedPreferences from site_service cache methods | `site_service.dart` |
+| Removed `kIsWeb`, SharedPreferences, file_bytes imports entirely | `site_sync_service.dart` |
 
-### Changes required
+See [`idb.md`](idb.md) for the full design and [`pwa_design.md`](pwa_design.md) for the testing checklist.
 
-1. Add `idb_shim` (or `sembast_web`) to `pubspec.yaml`
-2. Create `lib/services/local_image_storage_idb.dart`:
-   - `saveImage(bytes, key)` → async IDB `objectStore.put(bytes, key)`
-   - `readBytes(path)` — if must stay sync, pre-load into a memory cache on startup
-   - `deleteImage(path)` → `objectStore.delete(key)`
-3. Update `local_image_storage.dart` conditional export to select IDB on web
-4. Update `site_service._ensureCachedImage` on web: download + store in IDB on
-   first access; return local key on subsequent calls (removes online-only constraint)
-5. Add Web Crypto API encryption wrapper for the refresh token in localStorage
+### Testing status
 
-### Testing Stage 1
+- [ ] Capture → close tab → reopen → thumbnails still visible → upload succeeds
+- [ ] PWA backgrounded on Android → return → images still present
+- [ ] Ghost overlay visible offline after first load
+- [ ] DevTools → Application → IndexedDB → `fomomon_images` → rows visible after capture
 
-- Capture photos → close and reopen the tab → session images still display ✅
-- Ghost overlay loads after going offline (if downloaded once) ✅
-- Auth token is encrypted in localStorage ✅
+### Known gaps remaining after Stage 1
+
+- `_ensureCachedImage` web branch re-fetches S3 on every launch (missing `imageExists()` check)
+- Auth token unencrypted in localStorage
+
+---
+
+## Screen orientation (unresolved)
+
+Tracking separately because it cuts across Stage 0 and Stage 1 and is still being debugged.
+
+### Problem
+
+Landscape capture screen does not rotate to landscape on web (installed PWA on Android).
+Native is unaffected — `SystemChrome.setPreferredOrientations()` works at OS level
+with no display-mode constraint.
+
+### Root cause (confirmed)
+
+`screen.orientation.lock()` requires the page to be in fullscreen or standalone PWA
+display mode. Called from a regular browser tab it always throws `NotSupportedError`
+(silently swallowed). Confirmed testing environment is the installed PWA (standalone
+mode), so this constraint should be satisfied.
+
+### Attempts so far
+
+| Attempt | Outcome |
+|---------|---------|
+| Call `lock()` directly from `initState` | No effect, no error |
+| Move call to `SchedulerBinding.addPostFrameCallback` | Deployed, not yet confirmed working |
+
+### Next debug steps
+
+If `addPostFrameCallback` also has no effect:
+1. Add alert before and inside the callback to confirm (a) function is called, (b) callback fires, (c) error text if lock() throws
+2. If callback fires and lock() succeeds but screen doesn't rotate: try `Future.delayed(const Duration(milliseconds: 300), ...)` — some Chrome versions need a brief pause after navigation before honouring orientation lock
+3. If `screen.orientation` is null: the PWA manifest may need `"orientation": "any"` removed, or the device OS may have orientation locked at system level
 
 ---
 

@@ -1,6 +1,7 @@
 # Cross-Platform Storage Backends
 
-This document describes the storage architecture introduced in the Stage 0 PWA migration.
+This document describes the storage architecture introduced in the Stage 0 PWA migration
+and updated through Stage 1 (IndexedDB).
 The app now compiles and runs on Android, iOS, and web (Chrome / Safari) without any
 call-site changes. Platform-specific code is confined to `*_native.dart` and `*_web.dart`
 files selected at compile time via Dart's conditional export mechanism.
@@ -46,6 +47,7 @@ The selected file's class is the only `LocalSessionStorage` the app ever sees.
 ```
 
 The same pattern applies to:
+
 - `local_site_storage.dart` / `*_native.dart` / `*_web.dart`
 - `local_image_storage.dart` / `*_native.dart` / `*_web.dart`
 - `lib/utils/file_bytes.dart` / `file_bytes_io.dart` / `file_bytes_web.dart`
@@ -54,26 +56,37 @@ The same pattern applies to:
 
 ## Storage Backends by Data Type
 
-### 1. Captured Images
+### 1. Captured Images — Stage 1: IndexedDB
 
-| Aspect           | Native (Android / iOS)                      | Web — Stage 0 (in-memory)                    |
-|------------------|---------------------------------------------|----------------------------------------------|
-| Storage medium   | dart:io File at `{docsDir}/images/{key}`    | `static Map<String, Uint8List> _store = {}`  |
-| Lifetime         | Persistent — survives app restarts          | Session-scoped — lost on tab close / reload  |
-| Key / path       | Absolute filesystem path                    | `web_img:{filename}` (e.g. `web_img:p.jpg`)  |
-| Save             | `File(path).writeAsBytes(bytes)`            | `_store[key] = bytes`                        |
-| Read (sync)      | `File(path).readAsBytesSync()`              | `_store[key] ?? Uint8List(0)`                |
-| Exists (sync)    | `File(path).existsSync()`                   | `_store.containsKey(key)`                    |
-| Delete           | `File(path).delete()`                       | `_store.remove(key)`                         |
+> Stage 1 is complete. See [`idb.md`](idb.md) for the full design and testing checklist.
+
+| Aspect          | Native (Android / iOS)                   | Web — Stage 1 (IndexedDB + write-through cache)  |
+| --------------- | ---------------------------------------- | ------------------------------------------------ |
+| Storage medium  | dart:io File at `{docsDir}/images/{key}` | IndexedDB database `fomomon_images` (persistent) |
+| In-memory cache | N/A                                      | `static Map<String, Uint8List> _store = {}`      |
+| Lifetime        | Persistent — survives app restarts       | Persistent — survives tab close, reload, PWA bg  |
+| Key / path      | Absolute filesystem path                 | `web_img:{filename}` (e.g. `web_img:p.jpg`)      |
+| Save            | `File(path).writeAsBytes(bytes)`         | `_store[key] = bytes` + IDB `put(bytes.buffer)`  |
+| Read (sync)     | `File(path).readAsBytesSync()`           | `_store[key] ?? Uint8List(0)` (cache hit)        |
+| Exists (sync)   | `File(path).existsSync()`                | `_store.containsKey(key)`                        |
+| Delete          | `File(path).delete()`                    | `_store.remove(key)` + IDB `delete(key)`         |
+| Startup cost    | None                                     | IDB open + cursor preload into `_store`          |
+
+**Write-through cache decision**: IDB is async-only; `readBytes()` must stay synchronous
+because it is called from widget `build` and `initState` methods. The solution is to keep
+an in-memory `_store` as the read cache and write every save/delete to both `_store` and
+IDB simultaneously. On startup, `initStorage()` opens IDB and loads all entries into
+`_store` via a cursor scan — ensuring `readBytes()` is correct even after a reload.
+Making `readBytes()` async instead would have required changes at 3+ widget call sites
+(`capture_screen initState`, `confirm_screen initState`, upload gallery); the write-through
+approach contains all complexity in `local_image_storage_web.dart` with zero call-site
+changes.
 
 **Why SharedPreferences cannot store images**: SharedPreferences (localStorage) only
 accepts primitive types — String, int, bool, List\<String\>. Storing JPEG bytes as
 base64 strings would hit the 5–10 MB browser quota almost immediately for even 2–3
-photos. The in-memory Map bypasses this limit but sacrifices persistence.
-
-**Offline caveat**: On web, images only exist while the browser tab is open. If the
-user closes the tab before uploading, image bytes are gone even though the session
-record in SharedPreferences survives. Capture → upload must complete in one browser session.
+photos. IndexedDB handles arbitrary binary blobs with a quota of 50–80% of free disk
+space.
 
 **`web_img:` key pattern**: The prefix distinguishes web image keys from native filesystem
 paths. All image-displaying code calls `LocalImageStorage.readBytes(path)` and passes
@@ -91,7 +104,7 @@ final path = await LocalImageStorage.saveImage(bytes, key);
 
 // 3. upload_gallery_item.dart / session_detail_dialog.dart display:
 final bytes = LocalImageStorage.readBytes(session.portraitImagePath);
-// bytes = Uint8List(...)  from _store lookup
+// bytes = Uint8List(...)  from _store lookup (backed by IDB)
 Image.memory(bytes, fit: BoxFit.cover)
 ```
 
@@ -99,36 +112,35 @@ Image.memory(bytes, fit: BoxFit.cover)
 
 ### 2. Sessions
 
-| Aspect        | Native                                           | Web (Stage 0)                              |
-|---------------|--------------------------------------------------|--------------------------------------------|
-| Storage       | dart:io File per session in `{docsDir}/sessions/`| SharedPreferences key `session:{id}`       |
-| Index         | Directory listing (`listSync`)                   | SharedPreferences key `session_ids` (JSON) |
-| Persistence   | Permanent (disk)                                 | Permanent (localStorage — survives reload) |
-| Image cleanup | Deletes image files by path on delete            | No-op (images already gone or in-memory)   |
+| Aspect        | Native                                            | Web                                         |
+| ------------- | ------------------------------------------------- | ------------------------------------------- |
+| Storage       | dart:io File per session in `{docsDir}/sessions/` | SharedPreferences key `session:{id}`        |
+| Index         | Directory listing (`listSync`)                    | SharedPreferences key `session_ids` (JSON)  |
+| Persistence   | Permanent (disk)                                  | Permanent (localStorage — survives reload)  |
+| Image cleanup | Deletes image files by path on delete             | Removes from `_store` + IDB via deleteImage |
 
 Session metadata (siteId, timestamp, responses, upload status, image paths) survives
-page reloads on web. However, if images were not uploaded before the page was reloaded,
-the `portraitImagePath` / `landscapeImagePath` keys in the session will still reference
-`web_img:` paths that no longer exist in memory.
+page reloads on web. With Stage 1, image bytes referenced by `portraitImagePath` /
+`landscapeImagePath` also survive reload via IDB, so "upload later" works correctly.
 
 ---
 
 ### 3. Local Sites
 
-| Aspect      | Native                              | Web (Stage 0)                       |
-|-------------|-------------------------------------|-------------------------------------|
-| Storage     | `{docsDir}/local_sites.json`        | SharedPreferences key `local_sites` |
-| Format      | `{'sites': [...]}` JSON file        | Same JSON string in localStorage    |
-| Persistence | Permanent (disk)                    | Permanent (localStorage)            |
+| Aspect      | Native                       | Web                                 |
+| ----------- | ---------------------------- | ----------------------------------- |
+| Storage     | `{docsDir}/local_sites.json` | SharedPreferences key `local_sites` |
+| Format      | `{'sites': [...]}` JSON file | Same JSON string in localStorage    |
+| Persistence | Permanent (disk)             | Permanent (localStorage)            |
 
 ---
 
 ### 4. Sites Cache (`sites.json`)
 
-| Aspect      | Native                              | Web (Stage 0)                        |
-|-------------|-------------------------------------|--------------------------------------|
-| Storage     | `{docsDir}/cache/sites.json`        | SharedPreferences key `sites_cache`  |
-| Persistence | Permanent (disk)                    | Permanent (localStorage)             |
+| Aspect      | Native                       | Web                                 |
+| ----------- | ---------------------------- | ----------------------------------- |
+| Storage     | `{docsDir}/cache/sites.json` | SharedPreferences key `sites_cache` |
+| Persistence | Permanent (disk)             | Permanent (localStorage)            |
 
 The sites cache (from S3) persists across reloads on web. On startup, the app can serve
 cached sites immediately and refresh in the background — same async mode as native.
@@ -137,25 +149,28 @@ cached sites immediately and refresh in the background — same async mode as na
 
 ### 5. Ghost Reference Images (site overlays)
 
-| Aspect      | Native                                  | Web (Stage 0) — ⚠️ ONLINE ONLY         |
-|-------------|-----------------------------------------|-----------------------------------------|
-| First load  | Download from S3; cache to `{docsDir}/ghosts/` | Return S3 URL directly              |
-| Subsequent  | Load from local disk                    | Fetch from S3 each time                 |
-| Offline     | Works (disk cache)                      | Fails silently (network required)       |
-| Display     | `Image.memory(readBytes(localPath))`    | `Image.network(s3Url)`                  |
+| Aspect     | Native                                         | Web — Stage 1                                |
+| ---------- | ---------------------------------------------- | -------------------------------------------- |
+| First load | Download from S3; cache to `{docsDir}/ghosts/` | Fetch from S3; store in IDB via saveImage    |
+| Subsequent | Load from local disk (fileExistsAsync)         | Read from `_store` (IDB preloaded at start)  |
+| Offline    | Works (disk cache)                             | Works after first load (IDB persistent)      |
+| Display    | `Image.memory(readBytes(localPath))`           | `Image.memory(readBytes('web_img:ghost_…'))` |
 
-`site_service._ensureCachedImage` returns the S3 URL immediately on web:
-```dart
-if (kIsWeb) return remoteUrl;  // ⚠️ ONLINE-ONLY: no local cache on web
-```
-This means the ghost image overlay in the capture screen requires an active internet
-connection on web. If the browser is offline, the overlay silently fails to display.
+Ghost images are prefetched eagerly at site-load time in `_fetchSitesSynchronously()`
+and refreshed in `_prefetchImagesInBackground()`. With IDB they persist across reloads,
+so the ghost overlay works offline after the first session — matching native behaviour.
+
+**Known gap**: `_ensureCachedImage()` web branch currently lacks the `imageExists()` check
+that the native branch uses (`fileExistsAsync(localPath)`). This means it re-fetches from
+S3 on every app launch even when the IDB entry is valid. Fix: add
+`LocalImageStorage.imageExists('web_img:$key')` check before the fetch.
 
 ---
 
 ## `Image.file` → `Image.memory` Migration
 
 On native, image display used to rely on dart:io File paths:
+
 ```dart
 // BEFORE (native only — crashes on web)
 Image.file(File(session.portraitImagePath), fit: BoxFit.cover)
@@ -172,8 +187,9 @@ Image.memory(bytes, fit: BoxFit.cover)
 ```
 
 This pattern is used in:
+
 - `lib/screens/confirm_screen.dart` (full-screen captured image display)
-- `lib/screens/capture_screen.dart` (ghost overlay on native)
+- `lib/screens/capture_screen.dart` (ghost overlay — unified, no kIsWeb check needed)
 - `lib/widgets/upload_gallery_item.dart` (session thumbnail)
 - `lib/widgets/session_detail_dialog.dart` (portrait + landscape detail)
 
@@ -197,20 +213,20 @@ kIsWeb = true  → SharedPreferences (localStorage — unencrypted)
 ```
 
 The web token is stored unencrypted in localStorage. This is acceptable for
-localhost / internal testing (Stage 0). Stage 1 should add Web Crypto API encryption.
+localhost / internal testing. Stage 2 should add Web Crypto API encryption.
 
 ---
 
 ## What Works Offline (Web vs Native)
 
-| Feature                      | Native offline | Web in-memory offline |
-|------------------------------|----------------|-----------------------|
-| View cached sites             | ✅             | ✅ (SharedPreferences) |
-| View previously saved sessions| ✅             | ✅ (metadata only)     |
-| View session images           | ✅             | ❌ (in-memory; gone after reload) |
-| Capture new photos            | ✅             | ✅ (camera works offline) |
-| Use ghost reference overlay   | ✅ (disk cache) | ❌ (requires S3 network) |
-| Upload sessions               | ❌ (needs network)| ❌ (needs network)    |
+| Feature                        | Native offline     | Web offline (Stage 1)            |
+| ------------------------------ | ------------------ | -------------------------------- |
+| View cached sites              | ✅                 | ✅ (SharedPreferences)           |
+| View previously saved sessions | ✅                 | ✅ (metadata only)               |
+| View session images            | ✅                 | ✅ (IDB — persists after reload) |
+| Capture new photos             | ✅                 | ✅ (camera works offline)        |
+| Use ghost reference overlay    | ✅ (disk cache)    | ✅ (IDB after first load)        |
+| Upload sessions                | ❌ (needs network) | ❌ (needs network)               |
 
 ---
 
@@ -242,62 +258,33 @@ localhost / internal testing (Stage 0). Stage 1 should add Web Crypto API encryp
            │
            └──── dart.library.html = true (web build) ────────────────────┐
                                                                            │
-             LocalImageStorage      → Map<String, Uint8List> (in-memory)  │
+             LocalImageStorage      → IndexedDB (fomomon_images) +        │
+                                       in-memory write-through cache       │
              LocalSessionStorage    → SharedPreferences (localStorage)     │
              LocalSiteStorage       → SharedPreferences (localStorage)     │
-             readFileBytes/fileExists → LocalImageStorage (in-memory)     │
+             readFileBytes/fileExists → LocalImageStorage (IDB/cache)     │
              Auth tokens            → SharedPreferences (localStorage)     │
              Sites cache            → SharedPreferences (localStorage)     │
-             Ghost images           → S3 URL via Image.network() ⚠️ONLINE  │
+             Ghost images           → IDB via LocalImageStorage.saveImage  │
              Image display          → LocalImageStorage.readBytes()         │
                                       → Image.memory(bytes)                │
-             ⚠️ Images lost on tab close / reload                          │
              └──────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## Stage 1 — IndexedDB Backend
-
-Stage 1 will replace the in-memory image store with an IndexedDB backend, enabling
-persistent binary storage in the browser. Changes required:
-
-1. **New file**: `lib/services/local_image_storage_idb.dart`
-   - Uses `idb_shim` package (or `sembast_web` with a blob adapter)
-   - `saveImage(bytes, key)` → `objectStore.put(bytes, key)` async
-   - `readBytes(path)` → will need to become `async` (DB read is async)
-   - If `readBytes` must stay sync, pre-load into a memory cache on app start
-     and invalidate on save/delete
-
-2. **New conditional export chain**:
-   - Option A: Two-tier — native vs web; on web use IDB
-   - Option B: Three-tier with a build flag to select Stage-0 web vs Stage-1 web
-
-3. **Ghost images**: `_ensureCachedImage` on web would download once and store in
-   IDB by key `ghost:{siteId}:{filename}`, removing the online-only constraint.
-
-4. **Session images**: After reload, `readBytes('web_img:portrait_...')` would hit
-   IDB and return the persisted bytes, making "upload later" work on web.
-
-5. **Token encryption**: Wrap the SharedPreferences token store with Web Crypto API
-   (AES-GCM) so the refresh token is not in localStorage in plaintext.
-
----
-
 ## File Reference
 
-| File | Role |
-|------|------|
-| `lib/services/local_image_storage.dart` | Conditional export — image storage router |
-| `lib/services/local_image_storage_native.dart` | dart:io implementation |
-| `lib/services/local_image_storage_web.dart` | In-memory Map implementation (Stage 0 web) |
-| `lib/services/local_session_storage.dart` | Conditional export — session storage router |
-| `lib/services/local_session_storage_native.dart` | dart:io implementation |
-| `lib/services/local_session_storage_web.dart` | SharedPreferences implementation |
-| `lib/services/local_site_storage.dart` | Conditional export — local site storage router |
-| `lib/services/local_site_storage_native.dart` | dart:io implementation |
-| `lib/services/local_site_storage_web.dart` | SharedPreferences implementation |
-| `lib/utils/file_bytes.dart` | Conditional export — raw file I/O router |
-| `lib/utils/file_bytes_io.dart` | dart:io implementation |
-| `lib/utils/file_bytes_web.dart` | Web stubs / LocalImageStorage delegation |
-| `lib/stubs/flutter_secure_storage_stub.dart` | No-op stub enabling conditional import of flutter_secure_storage |
+| File                                             | Role                                                             |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| `lib/services/local_image_storage.dart`          | Conditional export — image storage router                        |
+| `lib/services/local_image_storage_native.dart`   | dart:io implementation                                           |
+| `lib/services/local_image_storage_web.dart`      | IndexedDB + write-through cache (Stage 1 web)                    |
+| `lib/services/local_session_storage.dart`        | Conditional export — session storage router                      |
+| `lib/services/local_session_storage_native.dart` | dart:io implementation                                           |
+| `lib/services/local_session_storage_web.dart`    | SharedPreferences implementation                                 |
+| `lib/services/local_site_storage.dart`           | Conditional export — local site storage router                   |
+| `lib/services/local_site_storage_native.dart`    | dart:io implementation                                           |
+| `lib/services/local_site_storage_web.dart`       | SharedPreferences implementation                                 |
+| `lib/utils/file_bytes.dart`                      | Conditional export — raw file I/O router                         |
+| `lib/utils/file_bytes_io.dart`                   | dart:io implementation                                           |
+| `lib/utils/file_bytes_web.dart`                  | Web stubs / LocalImageStorage delegation                         |
+| `lib/stubs/flutter_secure_storage_stub.dart`     | No-op stub enabling conditional import of flutter_secure_storage |

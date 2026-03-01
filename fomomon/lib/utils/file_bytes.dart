@@ -71,7 +71,6 @@
 /// They are used by upload_service to stream image bytes to S3 — this path
 /// works correctly because capture_screen stores images in the same in-memory
 /// store before upload. `readFileString`, write functions, and
-/// `getDocsDirPath` all return empty / no-op on web because site_service
-/// and site_sync_service use SharedPreferences for their JSON caches
-/// (kIsWeb branches) rather than going through this utility.
+/// `getDocsDirPath` all return empty / no-op on web; JSON caches
+/// (sites.json, sites_cache_sync) go through `SitesCacheStorage` instead.
 export 'file_bytes_io.dart' if (dart.library.html) 'file_bytes_web.dart';
