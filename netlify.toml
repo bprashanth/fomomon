@@ -1,0 +1,2 @@
+[build]
+  publish = "fomomon/build/web"
