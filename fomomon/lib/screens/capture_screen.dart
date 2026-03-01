@@ -1,14 +1,15 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 
 import '../models/site.dart';
 import '../models/confirm_screen_args.dart';
 import '../screens/confirm_screen.dart';
+import '../services/local_image_storage.dart';
 import '../widgets/orientation_dial.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -58,6 +59,13 @@ class _CaptureScreenState extends State<CaptureScreen>
   double? _currentHeading;
   StreamSubscription<CompassEvent>? _compassSub;
 
+  // Ghost image bytes, pre-loaded in initState from LocalImageStorage.
+  // On native: readBytes() reads from disk (synchronous).
+  // On web: readBytes() reads from in-memory store — bytes were fetched with
+  //   auth by site_service._ensureCachedImage and stored as 'web_img:ghost_*'.
+  //   Null if the network fetch failed or the site has no reference images.
+  Uint8List? _ghostBytes;
+
   @override
   void initState() {
     super.initState();
@@ -84,7 +92,9 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     // Start a compass stream only for the first (portrait) capture step, and
     // only when the site has a reference heading to compare against.
-    if (widget.captureMode == 'portrait' &&
+    // No magnetometer in browser — skip on web.
+    if (!kIsWeb &&
+        widget.captureMode == 'portrait' &&
         widget.site.referenceHeading != null) {
       _compassSub = FlutterCompass.events?.listen((event) {
         if (!mounted) return;
@@ -93,15 +103,30 @@ class _CaptureScreenState extends State<CaptureScreen>
         });
       });
     }
+
+    // Pre-load ghost image bytes so build() can use Image.memory.
+    // localPortraitPath / localLandscapePath are:
+    //   Native — absolute file paths written by _ensureCachedImage.
+    //   Web    — 'web_img:ghost_{siteId}_{orientation}' keys written to the
+    //            in-memory store by _ensureCachedImage (fetched with auth).
+    // readBytes() is synchronous on both platforms.
+    final ghostPath =
+        widget.captureMode == 'portrait'
+            ? widget.site.localPortraitPath
+            : widget.site.localLandscapePath;
+    if (ghostPath != null) {
+      _ghostBytes = LocalImageStorage.readBytes(ghostPath);
+    }
   }
 
   Future<void> _initCamera() async {
     try {
       final cameras = await availableCameras();
-      if (!mounted) return; // Check if widget is still mounted
+      if (!mounted) return;
 
       final backCam = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
       );
 
       _controller = CameraController(
@@ -110,24 +135,20 @@ class _CaptureScreenState extends State<CaptureScreen>
         enableAudio: false,
       );
 
-      if (!mounted) return; // Check again before initializing
+      if (!mounted) return;
 
       await _controller!.initialize();
 
-      // Ensure flash is always off (no auto-flash in low light).
       try {
         await _controller!.setFlashMode(FlashMode.off);
       } catch (e) {
         print("Failed to set flash mode off: $e");
       }
 
-      // Enable continuous autofocus during preview so camera is pre-focused
-      // when user taps, reducing the focus-lock delay during capture.
       try {
         await _controller!.setFocusMode(FocusMode.auto);
       } catch (e) {
         print("Failed to set focus mode: $e");
-        // Not critical - camera will still work, just might be slower
       }
 
       if (mounted) {
@@ -137,7 +158,7 @@ class _CaptureScreenState extends State<CaptureScreen>
       print("Camera initialization failed: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Failed to initialize camera. Please try again.'),
             backgroundColor: Colors.red,
           ),
@@ -149,24 +170,25 @@ class _CaptureScreenState extends State<CaptureScreen>
   Future<void> _capturePhoto() async {
     if (!_controller!.value.isInitialized || !mounted) return;
 
-    final tempDir = await getTemporaryDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final filename = '${widget.userId}_${timestamp}_${widget.captureMode}.jpg';
-    final filePath = '${tempDir.path}/$filename';
+    final key = '${widget.userId}_${timestamp}_${widget.captureMode}.jpg';
 
     try {
-      // Shutter feedback: quick scale animation on tap + capturing overlay
       setState(() => _isCapturing = true);
       _shutterController.forward().then((_) => _shutterController.reverse());
 
       final start = DateTime.now();
-      final file = await _controller!.takePicture();
+      final xfile = await _controller!.takePicture();
       final elapsed = DateTime.now().difference(start);
       print("capture_screen: takePicture() took ${elapsed.inMilliseconds} ms");
 
-      if (!mounted) return; // Check if still mounted after capture
+      if (!mounted) return;
 
-      await file.saveTo(filePath);
+      // Read bytes from XFile (cross-platform) and persist via LocalImageStorage.
+      // On native: saved to {docsDir}/images/{key}; returns file path.
+      // On web:    stored in-memory under 'web_img:{key}'; returns that key.
+      final bytes = await xfile.readAsBytes();
+      final filePath = await LocalImageStorage.saveImage(bytes, key);
 
       if (!mounted) return;
 
@@ -195,7 +217,6 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
           )
           .whenComplete(() {
-            // Clear capturing state when user returns from confirm screen
             if (mounted) {
               setState(() => _isCapturing = false);
             }
@@ -204,7 +225,7 @@ class _CaptureScreenState extends State<CaptureScreen>
       print("Capture failed: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Failed to capture photo. Please try again.'),
             backgroundColor: Colors.red,
           ),
@@ -217,19 +238,12 @@ class _CaptureScreenState extends State<CaptureScreen>
   void dispose() {
     _shutterController.dispose();
     _compassSub?.cancel();
-    // Properly dispose the camera controller asynchronously
     _controller
         ?.dispose()
-        .then((_) {
-          // Camera disposed successfully
-        })
+        .then((_) {})
         .catchError((error) {
-          // Log any disposal errors but don't crash
           print("Camera disposal error: $error");
         });
-
-    // We don't touch orientation in dispose because it could mess with the
-    // next screens enforced orientation.
     super.dispose();
   }
 
@@ -247,21 +261,12 @@ class _CaptureScreenState extends State<CaptureScreen>
             ? widget.site.localPortraitPath
             : widget.site.localLandscapePath;
 
-    // Camera stacking order:
-    // - CameraPreview
-    // - GhostOverlay
-    // - Gridlines
-    // - OpacitySlider
-    // - CaptureButton
-    // The stacking order is important, eg we want to show the gridlines
-    // overlaid above the camera preview and ghost image, but not occluding the
-    // opacity slider.
     return Scaffold(
       body: Stack(
         children: [
           Positioned.fill(child: CameraPreview(_controller!)),
 
-          // Top overlay with site id so user knows which site this capture is for
+          // Top overlay with site id
           Positioned(
             top: MediaQuery.of(context).padding.top + 12,
             left: 16,
@@ -288,7 +293,9 @@ class _CaptureScreenState extends State<CaptureScreen>
                       ),
                     ),
                   ),
-                  if (widget.captureMode == 'portrait' &&
+                  // Compass dial: only shown on native (no magnetometer on web)
+                  if (!kIsWeb &&
+                      widget.captureMode == 'portrait' &&
                       widget.site.referenceHeading != null &&
                       _currentHeading != null) ...[
                     const SizedBox(height: 8),
@@ -302,14 +309,18 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
           ),
 
-          if (ghostPath != null)
+          // Ghost image overlay — unified across native and web.
+          // Bytes are pre-loaded in initState via LocalImageStorage.readBytes().
+          // Null if the site has no reference images or the network fetch failed.
+          if (_ghostBytes != null)
             Positioned.fill(
               child: Opacity(
                 opacity: _opacity,
-                child: Image.file(File(ghostPath), fit: BoxFit.cover),
+                child: Image.memory(_ghostBytes!, fit: BoxFit.cover),
               ),
             ),
 
+          // Gridlines
           Positioned.fill(
             child: Column(
               children: [
@@ -342,6 +353,7 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
           ),
 
+          // Opacity slider
           Positioned(
             right: 16,
             top: MediaQuery.of(context).size.height * 0.3,
@@ -357,6 +369,7 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
           ),
 
+          // Capture button
           Positioned(
             bottom: 40,
             left: 0,

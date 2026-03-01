@@ -1,6 +1,6 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/captured_session.dart';
+import '../services/local_image_storage.dart';
 
 class UploadGalleryItem extends StatelessWidget {
   final CapturedSession session;
@@ -18,6 +18,23 @@ class UploadGalleryItem extends StatelessWidget {
   }
 
   String _pad(int n) => n.toString().padLeft(2, '0');
+
+  /// Cross-platform image widget: uses Image.memory (reads from LocalImageStorage
+  /// on both native and web) so that 'web_img:{key}' paths work in browsers.
+  Widget _buildThumbnail(String path) {
+    if (path.isEmpty) {
+      return const Icon(Icons.image, color: Colors.grey, size: 40);
+    }
+    try {
+      final bytes = LocalImageStorage.readBytes(path);
+      if (bytes.isEmpty) {
+        return const Icon(Icons.image, color: Colors.grey, size: 40);
+      }
+      return Image.memory(bytes, fit: BoxFit.cover);
+    } catch (_) {
+      return const Icon(Icons.broken_image, color: Colors.grey, size: 40);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,23 +66,7 @@ class UploadGalleryItem extends StatelessWidget {
                 width: 100,
                 height: 100,
                 color: Colors.grey[800],
-                child: session.portraitImagePath.isNotEmpty
-                    ? Image.file(
-                        File(session.portraitImagePath),
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(
-                            Icons.broken_image,
-                            color: Colors.grey,
-                            size: 40,
-                          );
-                        },
-                      )
-                    : const Icon(
-                        Icons.image,
-                        color: Colors.grey,
-                        size: 40,
-                      ),
+                child: _buildThumbnail(session.portraitImagePath),
               ),
             ),
             // Content
@@ -112,4 +113,3 @@ class UploadGalleryItem extends StatelessWidget {
     );
   }
 }
-

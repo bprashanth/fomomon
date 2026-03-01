@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:sensors_plus/sensors_plus.dart';
@@ -29,13 +30,19 @@ class _GpsFeedbackPanelState extends State<GpsFeedbackPanel> {
   void initState() {
     super.initState();
 
-    accelerometerEvents.listen((e) {
-      if (!mounted) return;
-      final newPitch = atan2(-e.x, sqrt(e.y * e.y + e.z * e.z)) * 180 / pi;
-      // simple moving average to stabilize
-      _pitch = (_pitch * 0.9) + (newPitch * 0.1);
-      setState(() {});
-    });
+    // sensors_plus DeviceMotion API requires HTTPS or localhost on web
+    // (same restriction as Geolocation). Guard here so it doesn't throw on
+    // a plain HTTP LAN IP. On web, _pitch stays 0 — the INCL ring text shows
+    // "INCL 0.0°" which is acceptable.
+    if (!kIsWeb) {
+      accelerometerEvents.listen((e) {
+        if (!mounted) return;
+        final newPitch = atan2(-e.x, sqrt(e.y * e.y + e.z * e.z)) * 180 / pi;
+        // simple moving average to stabilize
+        _pitch = (_pitch * 0.9) + (newPitch * 0.1);
+        setState(() {});
+      });
+    }
   }
 
   @override

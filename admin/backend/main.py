@@ -329,6 +329,55 @@ def _apply_bucket_policy(bucket_name: str, region: str) -> Dict[str, Any]:
     return plan
 
 
+# ---------------------------------------------------------------------------
+# S3 CORS — allow any origin so the bucket works with multiple PWAs and their
+# localhost testing setups without listing every dev port individually.
+# ---------------------------------------------------------------------------
+
+_DESIRED_CORS_RULES = [
+    {
+        "AllowedHeaders": ["*"],
+        "AllowedMethods": ["GET", "PUT", "HEAD"],
+        "AllowedOrigins": ["*"],
+        "ExposeHeaders": ["ETag"],
+        "MaxAgeSeconds": 3600,
+    }
+]
+
+
+def _get_bucket_cors(bucket_name: str, region: str) -> Optional[list]:
+    try:
+        resp = boto3.client("s3", region_name=region).get_bucket_cors(Bucket=bucket_name)
+        return resp.get("CORSRules", [])
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "NoSuchCORSConfiguration":
+            return None
+        raise
+
+
+def _cors_plan(bucket_name: str, region: str) -> Dict[str, Any]:
+    current_rules = _get_bucket_cors(bucket_name, region)
+
+    def _normalize(rules: list) -> str:
+        return json.dumps(
+            [{k: sorted(v) if isinstance(v, list) else v for k, v in rule.items()} for rule in rules],
+            sort_keys=True,
+        )
+
+    changes = current_rules is None or _normalize(current_rules) != _normalize(_DESIRED_CORS_RULES)
+    return {"current_rules": current_rules, "desired_rules": _DESIRED_CORS_RULES, "changes": changes}
+
+
+def _apply_cors(bucket_name: str, region: str) -> Dict[str, Any]:
+    plan = _cors_plan(bucket_name, region)
+    if plan["changes"]:
+        boto3.client("s3", region_name=region).put_bucket_cors(
+            Bucket=bucket_name,
+            CORSConfiguration={"CORSRules": plan["desired_rules"]},
+        )
+    return plan
+
+
 def _role_policy_document(bucket_name: str) -> Dict[str, Any]:
     bucket_arn = f"arn:aws:s3:::{bucket_name}"
     return {
@@ -587,11 +636,13 @@ def sync_auth_config():
 
     bucket_plan = _apply_bucket_policy(BUCKET_NAME or "", AWS_REGION or "")
     role_plan = _apply_role_policy(role_name, BUCKET_NAME or "", AWS_REGION or "")
+    cors_plan = _apply_cors(BUCKET_NAME or "", AWS_REGION or "")
 
     return {
         "ok": True,
         "bucketPolicyChanged": bucket_plan["changes"],
         "rolePolicyChanged": role_plan["changes"],
+        "corsChanged": cors_plan["changes"],
         "roleName": role_name,
         "publicAccessDetected": bucket_plan["public_access_detected"],
     }

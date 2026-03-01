@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/heading_service.dart';
@@ -22,27 +22,34 @@ class ConfirmScreen extends StatefulWidget {
 
 class _ConfirmScreenState extends State<ConfirmScreen> {
   late ConfirmScreenArgs args;
+  late String _shownImagePath;
+  // Bytes for the captured image — loaded once in initState to avoid repeated
+  // disk reads (native) or map lookups (web) inside build().
+  late Uint8List _imageBytes;
 
   @override
   void initState() {
     super.initState();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     args = widget.args;
+    _shownImagePath =
+        args.captureMode == 'portrait'
+            ? args.portraitImagePath!
+            : args.landscapeImagePath!;
+    // LocalImageStorage.readBytes is synchronous.
+    // Native: File(path).readAsBytesSync() — fast for a recently-captured JPEG.
+    // Web:    looks up 'web_img:{key}' from the in-memory store.
+    _imageBytes = LocalImageStorage.readBytes(_shownImagePath);
   }
 
   @override
   Widget build(BuildContext context) {
-    final String shownImagePath =
-        args.captureMode == 'portrait'
-            ? args.portraitImagePath!
-            : args.landscapeImagePath!;
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.file(File(shownImagePath), fit: BoxFit.cover),
+          Image.memory(_imageBytes, fit: BoxFit.cover),
 
           // Retake button
           Positioned(
@@ -51,7 +58,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             child: SizedBox(
               width: 150,
               child: ElevatedButton.icon(
-                onPressed: () => _onRetake(context, shownImagePath),
+                onPressed: () => _onRetake(context, _shownImagePath),
                 icon: const Icon(Icons.close),
                 label: const Text('Retake'),
                 style: ElevatedButton.styleFrom(
@@ -73,7 +80,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             child: SizedBox(
               width: 150,
               child: ElevatedButton.icon(
-                onPressed: () => _onConfirm(context, args, shownImagePath),
+                onPressed: () => _onConfirm(context, args, _shownImagePath),
                 icon: const Icon(Icons.check),
                 label: const Text('Use Photo'),
                 style: ElevatedButton.styleFrom(
@@ -94,12 +101,10 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
 
   void _onRetake(BuildContext context, String path) async {
     try {
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
+      // Cross-platform delete: removes file on native, map entry on web.
+      await LocalImageStorage.deleteImage(path);
     } catch (e) {
-      print('Error deleting file: $e');
+      print('Error deleting image: $e');
     }
 
     if (args.captureMode == 'landscape') {
@@ -122,6 +127,9 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     String imagePath,
   ) async {
     final timestamp = DateTime.now();
+    // saveImageToPermanentLocation is cross-platform:
+    // - Native: path from saveImage() is already permanent; returns as-is.
+    // - Web:    path is 'web_img:{key}'; bytes already in store; returns as-is.
     final savedPath = await LocalImageStorage.saveImageToPermanentLocation(
       tempPath: imagePath,
       userId: args.userId,
@@ -133,7 +141,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     if (!context.mounted) return;
 
     if (args.captureMode == 'portrait') {
-      // Launch next capture
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder:
@@ -149,8 +156,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         ),
       );
     } else {
-      // Landscape confirm: either launch survey or, if there are no questions,
-      // skip survey and directly save session + return home.
       if (args.site.surveyQuestions.isEmpty) {
         final heading = await HeadingService.getCurrentHeadingOnce();
 
@@ -182,7 +187,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
           (route) => false,
         );
       } else {
-        // Launch survey as usual when questions are configured.
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder:
