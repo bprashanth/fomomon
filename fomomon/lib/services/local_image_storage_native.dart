@@ -25,6 +25,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 class LocalImageStorage {
+  /// Always false on native — images are written directly to disk and are
+  /// always available after initStorage() (which is a no-op here).
+  static bool storageFallback = false;
+
   /// No-op on native — images are written directly to disk in [saveImage].
   /// Exists so call sites can call initStorage() without platform guards.
   static Future<void> initStorage() async {}

@@ -3,6 +3,7 @@ import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
+import 'services/local_image_storage.dart';
 import 'config/app_config.dart';
 
 class FomomonApp extends StatefulWidget {
@@ -15,6 +16,7 @@ class FomomonApp extends StatefulWidget {
 class _FomomonAppState extends State<FomomonApp> {
   Widget? _initialWidget;
   bool _isLoading = true;
+  final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -73,24 +75,45 @@ class _FomomonAppState extends State<FomomonApp> {
         _isLoading = false;
       });
     }
+    if (LocalImageStorage.storageFallback) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _showStorageFallbackDialog(),
+      );
+    }
+  }
+
+  void _showStorageFallbackDialog() {
+    final ctx = _navigatorKey.currentContext;
+    if (ctx == null) return;
+    showDialog<void>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Unable to restore data'),
+        content: const Text(
+          'Sorry! Unable to restore unsaved data right now. '
+          'Continue with a blank slate?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return MaterialApp(
-        title: 'Fomomon',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.darkTheme,
-        home: const Scaffold(body: Center(child: CircularProgressIndicator())),
-      );
-    }
-
     return MaterialApp(
       title: 'Fomomon',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: _initialWidget ?? const LoginScreen(),
+      navigatorKey: _navigatorKey,
+      home: _isLoading
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : (_initialWidget ?? const LoginScreen()),
     );
   }
 }
