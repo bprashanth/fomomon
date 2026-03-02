@@ -14,9 +14,12 @@
 ///   4. [deleteImage] removes from both [_store] and IDB.
 ///
 /// Fallback: if IDB is unavailable (private browsing on Safari, browser
-/// restrictions), [initStorage] catches the error and the app continues with
+/// restrictions, or a dirty database state left by a previous crash/kill),
+/// [initStorage] catches the error or timeout and the app continues with
 /// in-memory-only storage — images are lost on reload but the app does not
-/// crash.
+/// crash or hang on a white screen. [storageFallback] is set to true in this
+/// case; app.dart detects this and shows the user a "continue with blank
+/// slate" dialog.
 ///
 /// IDB schema:
 ///   database : fomomon_images  (version 1)
@@ -33,12 +36,25 @@ class LocalImageStorage {
   static final Map<String, Uint8List> _store = {};
   static Database? _db;
 
+  /// True when IDB could not be opened or preloaded cleanly.
+  /// Writes still go to [_store] (in-memory); images captured in this session
+  /// are lost when the PWA is killed. The app stays functional for the current
+  /// session. app.dart shows a user-visible dialog when this is true.
+  static bool storageFallback = false;
+
   static const String _prefix = 'web_img:';
   static const String _dbName = 'fomomon_images';
   static const String _storeName = 'images';
 
   /// Opens the IDB database and pre-loads all stored image bytes into [_store]
   /// so [readBytes] stays synchronous. Call once before runApp().
+  ///
+  /// Both the open() and the preload cursor scan are guarded by a 5-second
+  /// timeout. This prevents a white-screen hang when the PWA is dismissed and
+  /// re-opened while the IDB database is in a dirty or locked state (e.g. the
+  /// OS killed the process mid-write). On timeout the app starts in
+  /// in-memory-only mode and [_db] is set to null so no further IDB writes are
+  /// attempted in that session.
   static Future<void> initStorage() async {
     try {
       _db = await html.window.indexedDB!.open(
@@ -50,22 +66,42 @@ class LocalImageStorage {
             db.createObjectStore(_storeName);
           }
         },
-      );
-      await _preloadFromIdb();
+      ).timeout(const Duration(seconds: 5));
     } catch (e) {
-      // IDB unavailable (e.g. private browsing on Safari) — fall back to
-      // in-memory-only mode. Images will be lost on reload.
-      print('local_image_storage_web: IDB unavailable, using in-memory only: $e');
+      // IDB open failed or timed out — fall back to in-memory-only.
+      print('local_image_storage_web: IDB open failed, using in-memory only: $e');
+      storageFallback = true;
+      return;
+    }
+    try {
+      await _preloadFromIdb().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      // Timeout: _preloadFromIdb() didn't complete (most likely the cursor
+      // stream stalled on a locked IDB left by a previous process kill).
+      // Null out _db so writes don't silently queue behind the stuck transaction.
+      print('local_image_storage_web: IDB preload timed out: $e');
+      _db = null;
+      storageFallback = true;
     }
   }
 
   /// Reads all IDB entries into [_store] using an IDB cursor stream.
+  ///
+  /// [autoAdvance: true] is required — without it dart:indexed_db's cursor
+  /// stream emits the first entry then stalls indefinitely, which causes the
+  /// 5-second timeout to fire on every launch that has stored data.
+  ///
+  /// On failure the transaction is explicitly aborted so the readonly lock is
+  /// released immediately. A stuck readonly transaction would otherwise block
+  /// all subsequent readwrite transactions, silently causing [saveImage] IDB
+  /// writes to queue forever while [_store] updates succeeded.
   static Future<void> _preloadFromIdb() async {
     if (_db == null) return;
+    Transaction? txn;
     try {
-      final txn = _db!.transaction(_storeName, 'readonly');
+      txn = _db!.transaction(_storeName, 'readonly');
       final store = txn.objectStore(_storeName);
-      await for (final cursor in store.openCursor()) {
+      await for (final cursor in store.openCursor(autoAdvance: true)) {
         final key = cursor.key as String;
         final val = cursor.value;
         if (val is ByteBuffer) {
@@ -76,6 +112,11 @@ class LocalImageStorage {
       }
     } catch (e) {
       print('local_image_storage_web: IDB preload failed: $e');
+      try {
+        txn?.abort();
+      } catch (_) {}
+      _db = null;
+      storageFallback = true;
     }
   }
 

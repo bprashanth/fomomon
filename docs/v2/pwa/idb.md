@@ -101,6 +101,51 @@ from Stage 0.
 to the previous in-memory-only behaviour. Users in private browsing lose images
 on reload, but the app does not crash.
 
+`LocalImageStorage.storageFallback` is set to `true` whenever the app falls
+back to in-memory-only mode (IDB open failure, preload failure, or timeout).
+`app.dart` checks this flag after `_checkStoredSession()` completes and shows
+a dialog: "Sorry! Unable to restore unsaved data right now. Continue with a
+blank slate?" — so users are not silently surprised by missing images.
+
+---
+
+## Known bugs and fixes
+
+### Cursor stream stall (`autoAdvance: true` required)
+
+**Symptom**: `IDB preload timed out` logged on *every* launch once any images
+are stored in IDB. The 5-second timeout fires reliably, not as a rare race.
+
+**Root cause**: `dart:indexed_db`'s `ObjectStore.openCursor()` returns a
+`Stream<CursorWithValue>`. Without `autoAdvance: true`, the stream emits the
+first cursor entry and then *waits indefinitely* for the caller to manually
+advance the cursor. `await for` never advances it, so the stream never
+completes and the `Future` returned by `_preloadFromIdb()` never resolves.
+
+**Fix** (`_preloadFromIdb()` in `local_image_storage_web.dart`):
+```dart
+await for (final cursor in store.openCursor(autoAdvance: true)) {
+```
+With `autoAdvance: true` the stream automatically advances after each entry
+and closes when the store is exhausted — matching normal Dart stream semantics.
+
+### Stuck readonly transaction blocks writes
+
+**Symptom** (consequence of the stall above, before the fix): After the
+preload timed out, `saveImage()` appeared to succeed (`_store` was updated)
+but images were silently never written to IDB. On PWA re-open the session
+thumbnails appeared but uploads failed ("no bytes").
+
+**Root cause**: The timed-out `_preloadFromIdb()` left an open `readonly`
+transaction on the `images` store. IDB serialises transactions per store;
+a pending `readonly` transaction blocks all subsequent `readwrite` transactions
+from committing. `txn.completed` in `saveImage()` therefore queued forever.
+
+**Fix**: On any error (including timeout propagated from the outer try/catch),
+`_preloadFromIdb()` explicitly calls `txn.abort()` to release the lock and
+sets `_db = null` so `saveImage()` skips IDB entirely for the session rather
+than silently queuing dead writes.
+
 ---
 
 ## Testing checklist

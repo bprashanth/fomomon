@@ -150,6 +150,20 @@ See [`idb.md`](idb.md) for the full design and [`pwa_design.md`](pwa_design.md) 
 - `_ensureCachedImage` web branch re-fetches S3 on every launch (missing `imageExists()` check)
 - Auth token unencrypted in localStorage
 
+### Regression found in testing (fixed)
+
+**White screen on PWA re-open after dismiss**: Swiping up to dismiss the PWA (Android
+kills the process) can leave the IDB database in a dirty or locked state. On next open,
+`initStorage()` blocked indefinitely waiting for the IDB `open()` or cursor preload to
+complete — `runApp()` was never reached.
+
+Fix: added 5-second timeouts to both the `open()` call and the `_preloadFromIdb()` call
+in `local_image_storage_web.dart`. On timeout the app falls back to in-memory-only mode
+for that session (images captured before the bad state are unavailable but the app starts).
+
+Workaround for a device already stuck: Chrome → Settings → Site Settings → [Netlify domain]
+→ Clear & Reset. This deletes the corrupt IDB database and allows fresh initialisation.
+
 ---
 
 ## Screen orientation (unresolved)
