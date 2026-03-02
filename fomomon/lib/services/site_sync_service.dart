@@ -12,10 +12,19 @@ import '../services/telemetry_service.dart';
 import '../services/upload_service.dart';
 import '../utils/log.dart';
 
-// Cache key for site_sync (separate from site_service's 'sites_cache' key so
-// the two services don't overwrite each other's view of sites.json on web;
-// on native both resolve to the same {docsDir}/cache/sites.json file).
+// Cache key written by this service after a successful sync. Kept separate so
+// site_service's write of local image paths doesn't clobber this service's
+// view mid-sync. On native both keys resolve to the same file (key ignored).
 const String _kSyncCacheKey = 'sites_cache_sync';
+
+// Cache key written by site_service whenever sites.json is fetched from S3.
+// Used as a read-only fallback: when _kSyncCacheKey has not been written yet
+// (no previous sync on this device), fall back to site_service's copy so that
+// syncSitesToRemote starts from the full current remote state rather than an
+// empty list. Without this, the first sync on web overwrites S3 sites.json
+// with ONLY the newly added local site, erasing all existing remote sites.
+// On native this constant is unused (both keys map to the same file).
+const String _kSiteServiceCacheKey = 'sites_cache';
 
 /// SiteSyncService
 /// ---------------
@@ -205,10 +214,17 @@ class SiteSyncService {
   }
 
   /// Load remote sites and bucket_root from the cached sites.json.
+  ///
+  /// Reads [_kSyncCacheKey] first (written by previous syncs on this device).
+  /// Falls back to [_kSiteServiceCacheKey] (written by site_service on every
+  /// successful S3 fetch) so that the first sync on a fresh device starts with
+  /// the full current remote sites.json rather than an empty list.
   static Future<({String bucketRoot, List<Site> sites})>
   _loadRemoteSitesFromCache() async {
     try {
-      final jsonStr = await SitesCacheStorage.read(_kSyncCacheKey);
+      final jsonStr =
+          await SitesCacheStorage.read(_kSyncCacheKey) ??
+          await SitesCacheStorage.read(_kSiteServiceCacheKey);
       if (jsonStr == null) {
         final bucketRoot = AppConfig.getResolvedBucketRoot();
         dLog(
