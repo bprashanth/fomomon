@@ -30,5 +30,5 @@ uv pip install -r backend/requirements.txt
 uvicorn backend.main:app --reload --port 8090
 ```
 
-Currently this admin interface is only run locally. 
+Currently this admin interface is only run locally (i.e. it utilizes local credentials for aws). 
 For more info see [admin/README.md](admin/README.md). 
