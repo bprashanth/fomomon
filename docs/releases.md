@@ -14,17 +14,24 @@ Related docs:
 
 **Summary**
 
-- We publish only to the personal Play Console account (prashanth@).
-- The only package name in use is `com.t4gc.fomomon.dev`.
-- The only accepted build flavor for the store is `--flavor dev`.
-- All releases should go to **Closed testing** until we qualify for Open testing.
+- We publish to the personal Play Console account (prashanth@) for Android, and
+  on web via Netlify connected to the GitHub account.
+- The only Android package name in use is `com.t4gc.fomomon.dev`.
+- The only accepted Android build flavor for the store is `--flavor dev`.
+- All Android releases should go to **Closed testing** until we qualify for Open testing.
+- Web (PWA) releases are **manually triggered** by committing the built output to git.
 
 **Why this matters**
 
 - Google Play tracks are per package name. If we change the package name, it becomes a different app.
 - Keeping everything on `com.t4gc.fomomon.dev` avoids forcing users to uninstall/reinstall.
+- **Netlify has no build command**: the PWA `build/web/` directory is committed to git
+  (`fomomon/.gitignore` excludes `build/` but un-ignores `build/web/` with `!/build/web/`).
+  Netlify deploys whatever is in that directory at the pushed commit — no Flutter build runs
+  on Netlify. **Pushing code changes without rebuilding and committing `build/web/` does NOT
+  update the live PWA.** Field testing is safe across code-only pushes.
 
-### Release Steps (Current)
+### Release Steps — Android (Current)
 
 1. Bump version in `pubspec.yaml`.
    - Use `semver+versionCode` as documented in `docs/app_store.md`.
@@ -38,7 +45,69 @@ flutter build appbundle --flavor dev
 3. Upload the `.aab` to the **Closed testing** track for `com.t4gc.fomomon.dev`.
 4. Name the release according to the version in `pubspec.yaml`.
 
-### Track Usage (Current)
+### Release Steps — Web / PWA (Current)
+
+The PWA is hosted on Netlify. `netlify.toml` at the repo root sets the publish
+directory to `fomomon/build/web` with no build command. The compiled web output
+is committed to git and Netlify serves it directly.
+
+Netlify deploy contexts (also documented in `netlify.toml`):
+- **Production** (`main` branch): deployed on every push to `main`
+- **Branch deploys**: disabled — only `main` gets a live deploy URL
+- **Deploy Previews**: enabled — every PR against `main` gets a preview URL
+
+**To release a new PWA version:**
+
+1. Build:
+
+```bash
+cd fomomon
+flutter build web --release
+```
+
+2. Commit and push:
+
+```bash
+git add build/web
+git commit -m "Release PWA vX.Y.Z"
+git push origin main
+```
+
+Netlify detects the push to `main`, deploys the new `build/web/` content, and
+the live PWA updates. Users' service workers pick up the new version on the next
+page load (silent, automatic — see "How the PWA updates for users" below).
+
+**Holding the live PWA stable (e.g. during field testing):**
+
+Simply do not rebuild and commit `build/web/`. Code-only pushes to `main` are
+safe — Netlify will re-deploy the same compiled output. No Netlify dashboard
+toggle is needed.
+
+### How the PWA updates for users
+
+There is no manual version number for the web — updates are content-based:
+
+- Flutter web compiles to hashed JS bundles. When any source file changes, the
+  bundle hashes change, and `flutter_service_worker.js` gets a new asset manifest.
+- On the user's next page load, the browser detects the new service worker,
+  downloads it in the background, and activates it on the following open.
+- Users see no version number; the update is silent and automatic.
+
+**`org.chromium.webapk.<hash>_v2` — what is it?**
+
+When a user adds the PWA to their Android home screen, Chrome wraps it in a
+**WebAPK** — a thin native APK registered with the OS. The package name
+(`org.chromium.webapk.<hash>`) is derived from the PWA's `start_url` and
+manifest; `_v2` denotes the WebAPK format generation (v2 replaced the deprecated
+v1 format). Chrome manages this entirely — the developer has no control over the
+package name or version.
+
+The "version 1" visible in Android settings is Chrome's internal WebAPK
+`versionCode`, starting at 1. Chrome increments it when it updates the WebAPK
+shell (triggered by changes to the PWA manifest — name, icons, `start_url`,
+etc.). This is **not** the Flutter app version and is not set by the developer.
+
+### Track Usage (Current) — Android
 
 - **Internal testing**: use only for T4GC team accounts.
 - **Closed testing**: use for external testers.
