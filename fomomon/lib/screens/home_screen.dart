@@ -19,6 +19,7 @@ import '../widgets/distance_info_panel.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import '../widgets/route_advisory.dart';
 import '../widgets/online_mode_button.dart';
+import '../widgets/permission_error_overlay.dart';
 import '../services/auth_service.dart';
 import 'login_screen.dart';
 
@@ -38,7 +39,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Position? _userPos;
   List<Site> _sites = [];
   List<Site> _sortedSites = [];
@@ -76,21 +77,40 @@ class _HomeScreenState extends State<HomeScreen> {
 
   double _heading = 0.0;
 
+  // Non-null when ensurePermission() failed; drives the error overlay.
+  GpsPermissionStatus? _gpsError;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _positionSubscription?.cancel();
     super.dispose();
   }
 
+  // Retry _init() every time the app is foregrounded, but only while the
+  // position stream hasn't been established (i.e. we're still stuck on a
+  // permission error). Once the stream is running this is a no-op.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _positionSubscription == null) {
+      _init();
+    }
+  }
+
   Future<void> _init() async {
-    final ok = await GpsService.ensurePermission();
-    if (!ok) return;
+    final status = await GpsService.ensurePermission();
+    if (status != GpsPermissionStatus.granted) {
+      setState(() => _gpsError = status);
+      return;
+    }
+    setState(() => _gpsError = null);
 
     // Fetch the sites and prefetch the images every home screen load.
     // Typically, all images should have been prefetched at the
@@ -339,6 +359,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 email: widget.email,
                 org: widget.org,
               ),
+              // GPS error overlay — shown when location services are off or
+              // permission is denied. Clears automatically when _init()
+              // succeeds on the next app-resume cycle.
+              if (_gpsError != null)
+                Positioned.fill(
+                  child: PermissionErrorOverlay(
+                    title: _gpsError == GpsPermissionStatus.servicesDisabled
+                        ? 'Location services are off'
+                        : 'Location access is required',
+                    message: _gpsError == GpsPermissionStatus.servicesDisabled
+                        ? 'Enable Location in your phone\'s Settings to use FOMO.'
+                        : 'Grant location permission to FOMO in App Settings.',
+                    onOpenSettings: () {
+                      if (_gpsError == GpsPermissionStatus.servicesDisabled) {
+                        Geolocator.openLocationSettings();
+                      } else {
+                        Geolocator.openAppSettings();
+                      }
+                    },
+                  ),
+                ),
             ],
           );
         },
