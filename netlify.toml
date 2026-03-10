@@ -1,3 +1,35 @@
+# Netlify deploy configuration for fomomon PWA.
+#
+# Build model: pre-built commit (no build command)
+# ------------------------------------------------
+# Netlify deploys the pre-built Flutter web output directly from git.
+# fomomon/.gitignore excludes build/ but explicitly un-ignores build/web/
+# (!/build/web/) so the compiled output is committed to the repository.
+#
+# To update the live PWA:
+#   1. cd fomomon && flutter build web --release
+#   2. git add fomomon/build/web && git commit && git push main
+#
+# Pushing code changes WITHOUT rebuilding does NOT update the live PWA.
+# Netlify will re-deploy the same build/web content that was last committed.
+# This means the PWA running in the field is stable across code-only pushes.
+#
+# Deploy contexts (branch settings live in the Netlify UI, documented here):
+#   Production branch:  main     -> deploys to live site on every push to main
+#   Branch deploys:     disabled -> non-main branches do not get a deploy URL
+#   Deploy Previews:    enabled  -> every PR against main gets a preview URL
+#                                   (preview also uses committed build/web from
+#                                    the PR branch, not a fresh flutter build)
+
 [build]
   base    = "fomomon"
   publish = "build/web"
+  # No command: field is intentionally absent. Netlify serves the directory
+  # as-is without running any build step. See explanation above.
+
+[context.production]
+  # Deployed on every push to main. Serves committed fomomon/build/web/.
+
+[context.deploy-preview]
+  # Created for every PR against main. Serves committed build/web/ from the
+  # PR branch — useful for reviewing UI changes that include a rebuilt output.
