@@ -12,10 +12,12 @@ import '../services/telemetry_service.dart';
 import '../services/upload_service.dart';
 import '../utils/log.dart';
 
-// Cache key for site_sync (separate from site_service's 'sites_cache' key so
-// the two services don't overwrite each other's view of sites.json on web;
-// on native both resolve to the same {docsDir}/cache/sites.json file).
-const String _kSyncCacheKey = 'sites_cache_sync';
+// Shared cache key used by both this service and site_service. Both services
+// read/write the same slot so syncSitesToRemote always starts from the full
+// current remote state (written by site_service at login time) rather than an
+// empty list. On native the key is ignored — all cache reads/writes go to the
+// same file regardless of key.
+const String _kSyncCacheKey = 'sites_cache';
 
 /// SiteSyncService
 /// ---------------
@@ -205,6 +207,10 @@ class SiteSyncService {
   }
 
   /// Load remote sites and bucket_root from the cached sites.json.
+  ///
+  /// Reads [_kSyncCacheKey], which is shared with site_service. On first launch
+  /// site_service writes this key at login time, so syncSitesToRemote always
+  /// starts from the full current remote state rather than an empty list.
   static Future<({String bucketRoot, List<Site> sites})>
   _loadRemoteSitesFromCache() async {
     try {

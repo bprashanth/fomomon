@@ -1,11 +1,53 @@
 /// site_service.dart
 /// ----------------
-/// Handles loading and parsing `sites.json` from a S3 bucket.
-/// Exposes:
-/// - fetchSitesAndPrefetchImages(): List<Site>
+/// Manages fetching, caching, and serving the canonical list of survey sites.
 ///
-/// The list of sites object returned contains local paths to the reference
-/// images on native, and 'web_img:' in-memory keys on web (fetched with auth).
+/// ## Overview
+///
+/// The remote source of truth is `sites.json` in S3, which lists each site's
+/// ID, GPS coordinates, and relative paths to its reference (ghost) portrait
+/// and landscape images. This service:
+///
+///   1. Fetches `sites.json` from S3 (authenticated via FetchService/SigV4).
+///   2. Downloads the ghost images for each site and stores them locally so
+///      they are available without a network connection during capture.
+///   3. Writes the updated site list - with device-local image paths - back to
+///      a local cache (SharedPreferences on web, a file on native). The cache
+///      always reflects the last successful fetch + image download round.
+///   4. On the next launch, if the network is unavailable, the cached copy is
+///      returned directly (ghost images are already local, so capture works
+///      offline on native; on web they persist in IndexedDB).
+///
+/// Local sites created on this device (not yet in S3) are kept in a separate
+/// store and merged into the returned list at call time. After a successful
+/// upload, SiteSyncService promotes them to the remote sites.json.
+///
+/// ## Cache invariant
+///
+/// Both the synchronous fetch path and the background fetch path always call
+/// _updateCachedSitesWithLocalPaths after all ghost images have been downloaded,
+/// so the cache always holds device-local image paths - never raw S3 URLs.
+/// Another device reading this from its own store will see foreign paths, but
+/// immediately overwrites them when it runs its own fetch + image download cycle.
+///
+/// ## API
+///
+/// fetchSitesAndPrefetchImages({bool async = false}) -> Future<List<Site>>
+///
+///   async = false (default, used at login via site_prefetch_screen):
+///     Blocks until fresh sites.json is fetched from S3 and all ghost images
+///     are downloaded. Returns sites with local image paths set. On network
+///     failure, falls back to the cache. Intended for login-time prefetch where
+///     a loading screen can absorb the wait.
+///
+///   async = true (used on home screen):
+///     Returns immediately from the local cache if non-empty, then kicks off a
+///     background fetch + image download that updates the cache silently. If the
+///     cache is empty, falls through to the synchronous path. Intended for
+///     home-screen refresh where blocking the UI is not acceptable.
+///
+///   In both cases the returned list merges remote sites (from S3 or cache)
+///   with any locally-created sites not yet promoted to remote.
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -52,9 +94,7 @@ class SiteService {
         final localSites = await LocalSiteStorage.loadLocalSites();
         final mergedSites = _mergeSites(cachedSites, localSites);
         if (cachedSites.isNotEmpty) {
-          dLog(
-            "Async mode: Returning ${mergedSites.length} sites immediately",
-          );
+          dLog("Async mode: Returning ${mergedSites.length} sites immediately");
           _fetchAndCacheSitesInBackground();
           return mergedSites;
         }
@@ -359,20 +399,18 @@ class SiteService {
   /// Downloads and caches a ghost reference image.
   ///
   /// On native: downloads to {docsDir}/ghosts/{siteId}/{remoteFileName} and
-  /// returns the local file path. Subsequent calls return the cached path.
+  /// returns the local file path. Subsequent calls skip the download because
+  /// the file already exists on disk.
   ///
   /// On web: fetches bytes with Cognito auth via FetchService, stores them in
-  /// the in-memory LocalImageStorage under key 'ghost_{siteId}_{orientation}',
-  /// and returns 'web_img:ghost_{siteId}_{orientation}'. capture_screen reads
-  /// these bytes via LocalImageStorage.readBytes() and displays with
-  /// Image.memory() — same code path as native; no Image.network() needed.
+  /// LocalImageStorage under key 'ghost_{siteId}_{orientation}', and returns
+  /// 'web_img:ghost_{siteId}_{orientation}'. LocalImageStorage writes to both
+  /// the in-memory store and IndexedDB, so ghost images survive tab
+  /// reloads and PWA restarts. capture_screen reads via LocalImageStorage
+  /// .readBytes() and displays with Image.memory() — same code path as native.
   ///
-  /// ⚠️  ONLINE-ONLY on web ⚠️
-  ///
-  /// On native, ghost images are cached to disk and available offline.
-  /// On web, bytes are in the in-memory store for the duration of the browser
-  /// tab. If the app is reloaded, ghost images are re-fetched on next site
-  /// load (requires network). Stage 1: store in IndexedDB for offline access.
+  /// In private browsing or when IDB is unavailable (storageFallback mode),
+  /// bytes are in-memory only for the browser tab; re-fetched on each launch.
   static Future<String?> _ensureCachedImage({
     required String remoteUrl,
     required String remoteFileName,
@@ -497,7 +535,8 @@ class SiteService {
     final level =
         localOnlyIds.isNotEmpty ? TelemetryLevel.warning : TelemetryLevel.info;
     final parts = <String>[];
-    if (newRemoteIds.isNotEmpty) parts.add('${newRemoteIds.length} remote-only');
+    if (newRemoteIds.isNotEmpty)
+      parts.add('${newRemoteIds.length} remote-only');
     if (localOnlyIds.isNotEmpty) parts.add('${localOnlyIds.length} local-only');
 
     TelemetryService.instance.log(

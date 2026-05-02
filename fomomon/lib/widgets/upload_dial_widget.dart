@@ -155,46 +155,63 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       return;
     }
 
-    // Error/sync behavior: uploadAllSessions throws on any session failure (after
-    // finishing the loop and telemetry flush); we catch and clear _isUploading +
-    // _isSyncingMetadata so the UI never stays in "Syncing…". syncSitesToRemote()
-    // never throws (logs only), so we always reach the success path and clear flags.
+    // Upload all sessions, then sync local sites into remote sites.json.
+    //
+    // uploadAllSessions() throws after finishing its loop when any session
+    // had an error (the loop itself continues). syncSitesToRemote() must
+    // still run in that case: sessions that DID upload have their image URLs
+    // set, so a new local site can be promoted even if another session failed.
+    // syncSitesToRemote() never throws (logs only).
+    //
+    // Auth exceptions are re-thrown from the inner try so the outer handlers
+    // can redirect to login.
     try {
-      await UploadService.instance.uploadAllSessions(
-        sites: widget.sites,
-        onProgress: () {
-          setState(() => uploaded++);
-        },
-        onPhaseProgress: (CapturedSession session, UploadPhase phase) {
-          setState(() {
-            _currentPhase = phase;
-            _completedSubsteps++;
-            _currentSessionLabel = _formatSessionLabel(session);
-          });
-        },
-        onSessionError: (CapturedSession session, Object error) {
+      // --- Step 1: upload (errors collected, not immediately fatal) ---
+      try {
+        await UploadService.instance.uploadAllSessions(
+          sites: widget.sites,
+          onProgress: () {
+            setState(() => uploaded++);
+          },
+          onPhaseProgress: (CapturedSession session, UploadPhase phase) {
+            setState(() {
+              _currentPhase = phase;
+              _completedSubsteps++;
+              _currentSessionLabel = _formatSessionLabel(session);
+            });
+          },
+          onSessionError: (CapturedSession session, Object error) {
+            setState(() {
+              hasError = true;
+              _currentPhase = null;
+              _currentSessionLabel = _formatSessionLabel(session);
+              _lastErrorLabel = error.toString();
+            });
+          },
+        );
+      } on AuthSessionExpiredException {
+        rethrow;
+      } on AuthCredentialsException {
+        rethrow;
+      } catch (e) {
+        // Session-level upload errors: UI already updated via onSessionError.
+        // Fall through so sync still runs for the sessions that succeeded.
+        print("upload_dial_widget: upload error: $e");
+        if (mounted && !hasError) {
           setState(() {
             hasError = true;
-            _currentPhase = null;
-            _currentSessionLabel = _formatSessionLabel(session);
-            _lastErrorLabel = error.toString();
+            _lastErrorLabel ??= e.toString();
           });
-        },
-      );
+        }
+      }
 
-      // Show "Updating sites…" while syncing sites.json (and telemetry already
-      // flushed inside uploadAllSessions).
+      // --- Step 2: sync (always runs unless auth exception) ---
       if (mounted) {
         setState(() => _isSyncingMetadata = true);
       }
-      // After all sessions upload successfully, attempt to sync local sites
-      // into remote sites.json. This runs in the same try/catch so any
-      // AuthSessionExpiredException bubbles up consistently, but internal
-      // sync errors are logged and swallowed inside SiteSyncService.
       await SiteSyncService.syncSitesToRemote();
 
-      // Refresh after upload + sync completes so the dial reflects the new
-      // number of remaining sessions (usually 0/0 after a full successful run).
+      // --- Step 3: refresh dial ---
       await _loadSessions();
       if (mounted) {
         setState(() {
@@ -237,16 +254,13 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
         );
       }
     } catch (e) {
-      print("upload_dial_widget: error: $e");
-      // onSessionError will already have set hasError and labels when we know
-      // which session failed. This catch is a safety net.
+      print("upload_dial_widget: unexpected error: $e");
       if (mounted && !hasError) {
         setState(() {
           hasError = true;
           _lastErrorLabel ??= e.toString();
         });
       }
-      // Still refresh to get accurate count even on error
       await _loadSessions();
       if (mounted) {
         setState(() {
