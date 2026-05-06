@@ -8,8 +8,11 @@ import '../models/site.dart';
 import '../exceptions/auth_exceptions.dart';
 import '../screens/login_screen.dart';
 import '../models/captured_session.dart';
+import '../utils/log.dart';
 
+/// Displays the upload dial and runs the session-upload workflow.
 class UploadDialWidget extends StatefulWidget {
+  /// Creates an upload dial for the current [sites] list.
   const UploadDialWidget({super.key, required this.sites});
   final List<Site> sites;
 
@@ -23,6 +26,8 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
     with WidgetsBindingObserver {
   int uploaded = 0;
   int total = 0;
+  // hasError is set to true when an upload error occurs and triggers UI /
+  // error surfacing to the user.
   bool hasError = false;
   bool _isUploading = false;
   bool _noNetwork = false;
@@ -34,6 +39,8 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
   String? _currentSessionLabel;
   // _lastErrorLabel is only for debug logging, not shown to user
   String? _lastErrorLabel;
+  String? _errorMessage;
+
   /// After all session uploads, while syncing sites.json and telemetry.
   bool _isSyncingMetadata = false;
 
@@ -140,6 +147,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       _currentPhase = null;
       _currentSessionLabel = null;
       _lastErrorLabel = null;
+      _errorMessage = null;
       _isSyncingMetadata = false;
     });
 
@@ -196,7 +204,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       } catch (e) {
         // Session-level upload errors: UI already updated via onSessionError.
         // Fall through so sync still runs for the sessions that succeeded.
-        print("upload_dial_widget: upload error: $e");
+        dLog("upload_dial_widget: upload error: $e");
         if (mounted && !hasError) {
           setState(() {
             hasError = true;
@@ -209,7 +217,13 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
       if (mounted) {
         setState(() => _isSyncingMetadata = true);
       }
-      await SiteSyncService.syncSitesToRemote();
+      final syncResult = await SiteSyncService.syncSitesToRemote();
+      if (mounted && !syncResult.isSuccess) {
+        setState(() {
+          hasError = true;
+          _errorMessage = syncResult.message;
+        });
+      }
 
       // --- Step 3: refresh dial ---
       await _loadSessions();
@@ -220,7 +234,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
         });
       }
     } on AuthSessionExpiredException catch (e) {
-      print("upload_dial_widget: Session expired: $e");
+      dLog("upload_dial_widget: Session expired: $e");
       if (mounted) {
         setState(() {
           _isUploading = false;
@@ -237,7 +251,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
         );
       }
     } on AuthCredentialsException catch (e) {
-      print("upload_dial_widget: Auth credentials error: $e");
+      dLog("upload_dial_widget: Auth credentials error: $e");
       if (mounted) {
         setState(() {
           _isUploading = false;
@@ -254,7 +268,7 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
         );
       }
     } catch (e) {
-      print("upload_dial_widget: unexpected error: $e");
+      dLog("upload_dial_widget: unexpected error: $e");
       if (mounted && !hasError) {
         setState(() {
           hasError = true;
@@ -293,7 +307,8 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
             ? 0.0
             : (_completedSubsteps / totalSubsteps).clamp(0.0, 1.0);
     // Indeterminate spinner when waiting for first upload or when syncing metadata
-    final showIndeterminate = _isUploading &&
+    final showIndeterminate =
+        _isUploading &&
         (total > 0 && _completedSubsteps == 0 || _isSyncingMetadata);
 
     final phaseLabel =
@@ -330,14 +345,14 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
                       color:
                           _isPressed
                               ? Colors.yellowAccent
-                              : Colors.grey.withOpacity(0.5),
+                              : Colors.grey.withValues(alpha: 0.5),
                       width: 2,
                     ),
                   ),
                   child: CircularProgressIndicator(
                     value: showIndeterminate ? null : progressValue,
                     strokeWidth: 6,
-                    backgroundColor: Colors.grey.withOpacity(0.3),
+                    backgroundColor: Colors.grey.withValues(alpha: 0.3),
                     valueColor: const AlwaysStoppedAnimation<Color>(
                       Colors.yellowAccent,
                     ),
@@ -408,7 +423,9 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
             if (hasError && !allUploaded) ...[
               const SizedBox(height: 4),
               Text(
-                _noNetwork ? 'No network connection' : 'Upload failed',
+                _noNetwork
+                    ? 'No network connection'
+                    : _errorMessage ?? 'Upload failed',
                 style: const TextStyle(
                   color: Colors.redAccent,
                   fontSize: 9,
@@ -441,7 +458,9 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
           height: 8,
           decoration: BoxDecoration(
             color:
-                isActive ? Colors.yellowAccent : Colors.grey.withOpacity(0.4),
+                isActive
+                    ? Colors.yellowAccent
+                    : Colors.grey.withValues(alpha: 0.4),
             shape: BoxShape.circle,
           ),
         ),
@@ -450,7 +469,9 @@ class _UploadDialWidgetState extends State<UploadDialWidget>
           _phaseShortLabel[phase] ?? '',
           style: TextStyle(
             color:
-                isActive ? Colors.yellowAccent : Colors.grey.withOpacity(0.7),
+                isActive
+                    ? Colors.yellowAccent
+                    : Colors.grey.withValues(alpha: 0.7),
             fontSize: 8,
             fontFamily: 'monospace',
           ),
