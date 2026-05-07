@@ -82,7 +82,7 @@ The `bucket_root` from `users.json` is included in the IAM policy attached to th
 ## On the validity of URLs 
 
 There are 2 options, and we take the former currently
-1. Allow puublic GET on the bucket and include the direct url to the object 
+1. Allow public GET on the bucket and include the direct url to the object 
 2. Somehow keep re-signing urls once in seven days 
 	- Write a lambda service 
 	- Maintain a api server 
